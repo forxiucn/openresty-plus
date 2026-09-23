@@ -1,0 +1,16 @@
+# Run one OpenResty node directly on the Docker host network.
+# Start it with:
+# docker compose -f docker-compose.yaml -f docker-compose.host-network.yaml up -d --build control-plane openresty-east-1
+#
+# Host networking makes every Nginx `listen` directive bind directly to the
+# Docker host. Do not start east-2 on the same host unless all HTTP/Stream and
+# control bridge ports are guaranteed to be different.
+services:
+  openresty-east-1:
+    network_mode: host
+    ports: !reset []
+    environment:
+      # Docker Desktop provides this name from a host-networked Linux container
+      # back to the control-plane container published on host port 8080.
+      RUNTIME_CONTROL_PLANE_URL: http://host.docker.internal:8080
+      CONTROL_API_BRIDGE_PORT: 18081

@@ -1,0 +1,366 @@
+package net.daoke.openrestyplus.nativeconfig;
+
+import net.daoke.openrestyplus.center.CenterRepository;
+import net.daoke.openrestyplus.httpconfig.HttpLocation;
+import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
+import net.daoke.openrestyplus.httpconfig.HttpServer;
+import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
+import net.daoke.openrestyplus.httpconfig.HttpUpstream;
+import net.daoke.openrestyplus.httpconfig.HttpUpstreamRepository;
+import net.daoke.openrestyplus.streamconfig.StreamProtocol;
+import net.daoke.openrestyplus.streamconfig.StreamServer;
+import net.daoke.openrestyplus.streamconfig.StreamServerRepository;
+import net.daoke.openrestyplus.streamconfig.StreamUpstream;
+import net.daoke.openrestyplus.streamconfig.StreamUpstreamRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Turns the database model into a complete include tree.  The resulting tree is
+ * deliberately independent from the control plane process: a node orchestrator
+ * can copy {@link RenderedConfiguration#files()} to its generated-config mount,
+ * test it, and only then ask Nginx to reload it.
+ */
+@Service
+public class NativeConfigurationRenderer {
+    public static final String NODE_GENERATED_ROOT = "/etc/openresty/generated";
+    private static final DateTimeFormatter METADATA_TIME = DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC);
+
+    private final CenterRepository centers;
+    private final HttpUpstreamRepository httpUpstreams;
+    private final HttpServerRepository httpServers;
+    private final HttpLocationRepository httpLocations;
+    private final StreamUpstreamRepository streamUpstreams;
+    private final StreamServerRepository streamServers;
+    private final Path renderRoot;
+
+    public NativeConfigurationRenderer(CenterRepository centers,
+                                       HttpUpstreamRepository httpUpstreams,
+                                       HttpServerRepository httpServers,
+                                       HttpLocationRepository httpLocations,
+                                       StreamUpstreamRepository streamUpstreams,
+                                       StreamServerRepository streamServers,
+                                       @Value("${OPENRESTY_RENDER_ROOT:/tmp/openresty-plus/rendered}") String renderRoot) {
+        this.centers = centers;
+        this.httpUpstreams = httpUpstreams;
+        this.httpServers = httpServers;
+        this.httpLocations = httpLocations;
+        this.streamUpstreams = streamUpstreams;
+        this.streamServers = streamServers;
+        this.renderRoot = Path.of(renderRoot).toAbsolutePath().normalize();
+    }
+
+    public RenderedConfiguration render(UUID centerId) {
+        var center = centers.findById(centerId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Center not found"));
+        if (!center.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Center is disabled and cannot be rendered");
+        }
+
+        Instant now = Instant.now();
+        String nodeRoot = NODE_GENERATED_ROOT + "/" + centerId;
+        Map<String, String> files = new LinkedHashMap<>();
+        List<String> warnings = new ArrayList<>();
+        Map<UUID, HttpUpstream> httpUpstreamById = index(httpUpstreams.findByCenterIdOrderByName(centerId));
+        Map<UUID, StreamUpstream> streamUpstreamById = index(streamUpstreams.findByCenterIdOrderByName(centerId));
+        List<HttpServer> httpServerValues = httpServers.findByCenterIdOrderByDomainAscListenPortAsc(centerId);
+        List<StreamServer> streamServerValues = streamServers.findByCenterIdOrderByListenPortAsc(centerId);
+
+        for (HttpUpstream upstream : httpUpstreamById.values()) {
+            requireName(upstream.getName(), "HTTP upstream name");
+            files.put("http/upstream/" + upstream.getName() + ".conf", httpUpstream(upstream, now));
+        }
+        for (HttpServer server : httpServerValues) {
+            requireHost(server.getDomain(), "HTTP server domain");
+            if (server.getUpstreamId() != null && !httpUpstreamById.containsKey(server.getUpstreamId())) {
+                throw invalid("HTTP server " + server.getDomain() + ":" + server.getListenPort() + " references an upstream outside this center");
+            }
+            String serverStem = server.getDomain() + "." + server.getListenPort() + (server.isSslEnabled() ? ".ssl" : "");
+            List<HttpLocation> locations = httpLocations.findByServerIdOrderByPath(server.getId());
+            for (HttpLocation location : locations) {
+                requireLocationPath(location.getPath());
+                if (!httpUpstreamById.containsKey(location.getUpstreamId())) {
+                    throw invalid("HTTP location " + location.getPath() + " references an upstream outside this center");
+                }
+            files.put("http/location/" + serverStem + "/" + locationFileName(location.getPath()) + ".conf",
+                    httpLocation(server, location, httpUpstreamById.get(location.getUpstreamId()), nodeRoot, now));
+            }
+            if (server.isSslEnabled()) {
+                warnings.add("HTTP " + server.getDomain() + ":" + server.getListenPort()
+                    + " requests TLS, but the current model has no certificate reference. The generated listener remains plain HTTP until certificate fields are added.");
+            }
+            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, now));
+        }
+        for (StreamUpstream upstream : streamUpstreamById.values()) {
+            requireName(upstream.getName(), "Stream upstream name");
+            requireHostOrAddress(upstream.getTargetHost(), "Stream upstream target host");
+            files.put("stream/upstream/" + upstream.getName() + ".conf", streamUpstream(upstream, now));
+        }
+        for (StreamServer server : streamServerValues) {
+            requireName(server.getServiceName(), "Stream service name");
+            if (!streamUpstreamById.containsKey(server.getUpstreamId())) {
+                throw invalid("Stream server " + server.getServiceName() + ":" + server.getListenPort() + " references an upstream outside this center");
+            }
+            files.put("stream/server/" + server.getServiceName() + "." + server.getListenPort()
+                    + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", streamServer(server, streamUpstreamById.get(server.getUpstreamId()), now));
+        }
+        files.put("nginx.conf", rootConfiguration(nodeRoot, now));
+        return new RenderedConfiguration(centerId, center.getCode(), now, nodeRoot + "/nginx.conf", files, warnings, checksum(files));
+    }
+
+    /** Atomically replaces the center's local render tree for a deploy worker to consume. */
+    public MaterializedConfiguration materialize(UUID centerId) {
+        RenderedConfiguration configuration = render(centerId);
+        Path centerDirectory = renderRoot.resolve(centerId.toString());
+        Path staging = renderRoot.resolve("." + centerId + "." + UUID.randomUUID());
+        Path old = renderRoot.resolve("." + centerId + ".previous");
+        try {
+            for (var entry : configuration.files().entrySet()) {
+                Path target = staging.resolve(entry.getKey()).normalize();
+                if (!target.startsWith(staging)) {
+                    throw invalid("Unsafe generated file path");
+                }
+                Files.createDirectories(target.getParent());
+                Files.writeString(target, entry.getValue(), StandardCharsets.UTF_8);
+            }
+            Files.createDirectories(renderRoot);
+            deleteTree(old);
+            if (Files.exists(centerDirectory)) {
+                Files.move(centerDirectory, old, StandardCopyOption.REPLACE_EXISTING);
+            }
+            move(staging, centerDirectory);
+            deleteTree(old);
+            return new MaterializedConfiguration(configuration, centerDirectory);
+        } catch (IOException exception) {
+            deleteTree(staging);
+            if (!Files.exists(centerDirectory) && Files.exists(old)) {
+                try { move(old, centerDirectory); } catch (IOException ignored) { }
+            }
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot materialize native Nginx configuration", exception);
+        }
+    }
+
+    private String rootConfiguration(String nodeRoot, Instant now) {
+        return header("nginx.conf", now)
+            + "worker_processes auto;\n"
+            + "# 工作进程与事件模型由平台统一维护，业务配置通过下方 include 加载。\n"
+            + "error_log /dev/stderr notice;\n"
+            + "pid /var/run/nginx.pid;\n\n"
+            + "env RUNTIME_CONTROL_PLANE_URL;\n"
+            + "env RUNTIME_CENTER_ID;\n"
+            + "env RUNTIME_POLL_INTERVAL_SECONDS;\n\n"
+            + "events { worker_connections 1024; }\n\n"
+            + "http {\n"
+            + "    # 七层 HTTP 配置：上游、虚拟主机和接口配置分别独立存放。\n"
+            + "    resolver 127.0.0.11 ipv6=off valid=10s;\n"
+            + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
+            + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
+            + "    lua_shared_dict runtime_configuration 10m;\n"
+            + "    init_worker_by_lua_block { require(\"runtime\").start() }\n"
+            + "    include /usr/local/openresty/nginx/conf/mime.types;\n"
+            + "    default_type application/octet-stream;\n"
+            + "    log_format openresty_plus '$remote_addr - $remote_user [$time_local] \\\"$request\\\" $status $body_bytes_sent';\n"
+            + "    include " + nodeRoot + "/http/upstream/*.conf;\n"
+            + "    include " + nodeRoot + "/http/server/*.conf;\n"
+            + "}\n\n"
+            + "stream {\n"
+            + "    # 四层 TCP/UDP 配置：上游和监听服务分别独立存放。\n"
+            + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
+            + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
+            + "    log_format openresty_plus_stream '$remote_addr [$time_local] $protocol $status $bytes_sent $bytes_received $session_time';\n"
+            + "    include " + nodeRoot + "/stream/upstream/*.conf;\n"
+            + "    include " + nodeRoot + "/stream/server/*.conf;\n"
+            + "}\n";
+    }
+
+    private String httpUpstream(HttpUpstream upstream, Instant now) {
+        // The present HTTP upstream model has no endpoint table. A down placeholder keeps nginx -t valid
+        // while making the missing endpoint explicit during traffic instead of silently forwarding elsewhere.
+        return header("http.upstream." + upstream.getName() + ".conf", now)
+            + "# HTTP 上游服务：" + upstream.getName() + "。\n"
+            + "# 当前未维护后端实例列表，down 占位用于保证配置语法安全。\n"
+            + "upstream " + upstream.getName() + " {\n"
+            + "    server 127.0.0.1:1 down max_fails=3 fail_timeout=10s;\n"
+            + "    keepalive " + upstream.getKeepaliveConnections() + ";\n"
+            + "}\n";
+    }
+
+    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, Instant now) {
+        String stem = server.getDomain() + "." + server.getListenPort() + (server.isSslEnabled() ? ".ssl" : "");
+        StringBuilder result = new StringBuilder(header("http.server." + stem + ".conf", now));
+        result.append("# HTTP 虚拟主机：").append(server.getDomain()).append(':').append(server.getListenPort()).append("。\n")
+            .append("# 每个监听端口独立配置，接口规则通过 include 载入。\n");
+        result.append("server {\n")
+            .append("    listen ").append(server.getListenPort()).append(";\n")
+            .append("    server_name ").append(server.getDomain()).append(";\n")
+            .append("    access_log ").append(directivePath(server.getAccessLog())).append(" openresty_plus;\n")
+            .append("    error_log ").append(directivePath(server.getErrorLog())).append(" warn;\n");
+        for (HttpLocation location : locations) {
+            result.append("    include ").append(nodeRoot).append("/http/location/").append(stem)
+                .append('/').append(locationFileName(location.getPath())).append(".conf;\n");
+        }
+        if (locations.stream().noneMatch(location -> "/".equals(location.getPath()))) {
+            result.append("    location / { return 404; }\n");
+        }
+        return result.append("}\n").toString();
+    }
+
+    private String httpLocation(HttpServer server, HttpLocation location, HttpUpstream upstream, String nodeRoot, Instant now) {
+        return header("http.location." + server.getDomain() + "." + server.getListenPort() + "." + locationFileName(location.getPath()) + ".conf", now)
+            + "# HTTP 接口转发规则，由控制面生成；修改请通过管理界面完成。\n"
+            + "# service: " + server.getDomain() + "\n"
+            + "# action: " + location.getPath() + "\n"
+            + "# method: " + methods(location.getMethods()) + "\n"
+            + "# upstream: " + upstream.getName() + "\n"
+            + "location " + location.getPath() + " {\n"
+            + "    access_by_lua_block { require(\"runtime\").enforce() }\n"
+            + "    proxy_pass http://" + upstream.getName() + ";\n"
+            + "    proxy_connect_timeout " + location.getProxyConnectTimeoutMs() + "ms;\n"
+            + "    proxy_read_timeout " + location.getProxyReadTimeoutMs() + "ms;\n"
+            + "    proxy_send_timeout " + location.getProxySendTimeoutMs() + "ms;\n"
+            + "    proxy_set_header Host $host;\n"
+            + "    proxy_set_header X-Real-IP $remote_addr;\n"
+            + "    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+            + "    proxy_set_header X-Forwarded-Proto $scheme;\n"
+            + "}\n";
+    }
+
+    private String streamUpstream(StreamUpstream upstream, Instant now) {
+        return header("stream.upstream." + upstream.getName() + ".conf", now)
+            + "# 四层上游服务：" + upstream.getName() + "。\n"
+            + "upstream " + upstream.getName() + " {\n"
+            + "    server " + hostPort(upstream.getTargetHost(), upstream.getTargetPort()) + " max_fails=3 fail_timeout=10s;\n"
+            + "}\n";
+    }
+
+    private String streamServer(StreamServer server, StreamUpstream upstream, Instant now) {
+        return header("stream.server." + server.getServiceName() + "." + server.getListenPort()
+            + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", now)
+            + "# 四层监听服务：" + server.getServiceName() + ':' + server.getListenPort() + "。\n"
+            + "# 协议：" + (server.getProtocol() == StreamProtocol.UDP ? "UDP" : "TCP") + "。\n"
+            + "server {\n"
+            + "    listen " + server.getListenPort() + (server.getProtocol() == StreamProtocol.UDP ? " udp" : "") + ";\n"
+            + "    proxy_pass " + upstream.getName() + ";\n"
+            + "    access_log " + directivePath(server.getAccessLog()) + " openresty_plus_stream;\n"
+            + "    error_log " + directivePath(server.getErrorLog()) + " warn;\n"
+            + "}\n";
+    }
+
+    private String header(String id, Instant now) {
+        return "# config_id: " + id + "\n# version: database-rendered\n# updated: " + METADATA_TIME.format(now)
+            + "\n# author: admin\n\n";
+    }
+
+    private static <T> Map<UUID, T> index(List<T> values) {
+        Map<UUID, T> indexed = new LinkedHashMap<>();
+        for (T value : values) {
+            UUID id = value instanceof HttpUpstream upstream ? upstream.getId() : ((StreamUpstream) value).getId();
+            indexed.put(id, value);
+        }
+        return indexed;
+    }
+
+    private static void requireName(String value, String field) {
+        if (value == null || !value.matches("[a-z0-9][a-z0-9.-]{0,127}")) {
+            throw invalid(field + " must contain lower-case letters, digits, dots or hyphens only");
+        }
+    }
+
+    private static void requireHost(String value, String field) {
+        if (value == null || !value.matches("[a-z0-9][a-z0-9.-]{0,253}")) {
+            throw invalid(field + " is invalid");
+        }
+    }
+
+    private static void requireHostOrAddress(String value, String field) {
+        if (value == null || !value.matches("[0-9a-zA-Z:.\\-]{1,253}")) {
+            throw invalid(field + " is invalid");
+        }
+    }
+
+    private static void requireLocationPath(String path) {
+        if (path == null || !path.matches("/[A-Za-z0-9._~/%=&-]*") || path.contains("..")) {
+            throw invalid("HTTP location path is invalid");
+        }
+    }
+
+    private static String locationFileName(String path) {
+        return "/".equals(path) ? "_default" : path.substring(1).replace('/', '.').replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static String methods(List<String> values) {
+        if (values == null || values.isEmpty() || values.stream().anyMatch(value -> value == null || !value.matches("[A-Z]{1,16}"))) {
+            throw invalid("HTTP location method is invalid");
+        }
+        return String.join(",", values);
+    }
+
+    private static String directivePath(String path) {
+        if (path == null || !path.matches("/[A-Za-z0-9._/-]{1,511}")) {
+            throw invalid("Log path is invalid");
+        }
+        return path;
+    }
+
+    private static String hostPort(String host, int port) {
+        return host.contains(":") ? "[" + host + "]:" + port : host + ":" + port;
+    }
+
+    private static ResponseStatusException invalid(String message) {
+        return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, message);
+    }
+
+    private static String checksum(Map<String, String> files) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            files.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+                digest.update(entry.getKey().getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+                digest.update(entry.getValue().getBytes(StandardCharsets.UTF_8));
+            });
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static void move(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException exception) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void deleteTree(Path root) {
+        if (root == null || !Files.exists(root)) return;
+        try (var files = Files.walk(root)) {
+            files.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
+    }
+
+    public record RenderedConfiguration(UUID centerId, String centerCode, Instant generatedAt, String nodeEntryPoint,
+                                        Map<String, String> files, List<String> warnings, String checksum) { }
+    public record MaterializedConfiguration(RenderedConfiguration configuration, Path directory) { }
+}

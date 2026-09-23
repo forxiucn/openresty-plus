@@ -1,0 +1,9 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OPENRESTY_OIDC_ISSUER:http://localhost:8081/realms/openresty-plus}

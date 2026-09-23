@@ -1,0 +1,80 @@
+name: openresty-plus
+
+services:
+  native-config-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "mkdir -p /data && chown -R 10001:10001 /data"]
+    volumes:
+      - native-config:/data
+
+  control-plane:
+    build:
+      context: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      OPENRESTY_DB_URL: ${OPENRESTY_DB_URL}
+      OPENRESTY_DB_USERNAME: ${OPENRESTY_DB_USERNAME}
+      OPENRESTY_DB_PASSWORD: ${OPENRESTY_DB_PASSWORD}
+      OPENRESTY_REDIS_HOST: ${OPENRESTY_REDIS_HOST}
+      OPENRESTY_REDIS_PORT: ${OPENRESTY_REDIS_PORT}
+      OPENRESTY_REDIS_PASSWORD: ${OPENRESTY_REDIS_PASSWORD}
+      OPENRESTY_RENDER_ROOT: /var/lib/openresty-plus/rendered
+    volumes:
+      - native-config:/var/lib/openresty-plus/rendered
+    ports:
+      - "8080:8080"
+    depends_on:
+      native-config-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+    volumes:
+      - ./frontend/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "5173:80"
+    depends_on:
+      - control-plane
+
+  openresty-east-1:
+    build:
+      context: ./deploy/openresty
+      dockerfile: Dockerfile.control-api
+    ports:
+      - "18080:80"
+    hostname: openresty-east-1
+    environment:
+      RUNTIME_CONTROL_PLANE_URL: http://control-plane:8080
+      RUNTIME_CENTER_ID: c62981ca-9bb7-4ab4-b871-5c9943efe84d
+      RUNTIME_POLL_INTERVAL_SECONDS: 5
+    volumes:
+      - native-config:/etc/openresty/generated
+    depends_on:
+      - control-plane
+
+  openresty-east-2:
+    build:
+      context: ./deploy/openresty
+      dockerfile: Dockerfile.control-api
+    ports:
+      - "28080:80"
+    hostname: openresty-east-2
+    environment:
+      RUNTIME_CONTROL_PLANE_URL: http://control-plane:8080
+      RUNTIME_CENTER_ID: c62981ca-9bb7-4ab4-b871-5c9943efe84d
+      RUNTIME_POLL_INTERVAL_SECONDS: 5
+    volumes:
+      - native-config:/etc/openresty/generated
+    depends_on:
+      - control-plane
+
+  deploy-tools:
+    build:
+      context: ./deploy
+    profiles: ["tools"]
+    entrypoint: ["/bin/bash", "-lc"]
+    command: ["sleep infinity"]
+
+volumes:
+  native-config:
