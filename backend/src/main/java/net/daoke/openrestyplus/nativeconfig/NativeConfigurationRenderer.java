@@ -93,6 +93,7 @@ public class NativeConfigurationRenderer {
         Map<UUID, HttpUpstream> httpUpstreamById = index(httpUpstreams.findByCenterIdOrderByName(centerId));
         Map<UUID, StreamUpstream> streamUpstreamById = index(streamUpstreams.findByCenterIdOrderByName(centerId));
         List<HttpServer> httpServerValues = httpServers.findByCenterIdOrderByDomainAscListenPortAsc(centerId);
+        List<HttpLocation> rateLimitedLocations = new ArrayList<>();
         Map<UUID, TlsCertificate> certificateById = new LinkedHashMap<>();
         for (TlsCertificate certificate : tlsCertificates.findByCenterIdOrderByName(centerId)) certificateById.put(certificate.getId(), certificate);
         List<StreamServer> streamServerValues = streamServers.findByCenterIdOrderByListenPortAsc(centerId);
@@ -113,6 +114,7 @@ public class NativeConfigurationRenderer {
                 if (!httpUpstreamById.containsKey(location.getUpstreamId())) {
                     throw invalid("HTTP location " + location.getPath() + " references an upstream outside this center");
                 }
+                if (location.isRateLimitEnabled()) rateLimitedLocations.add(location);
             files.put("http/location/" + serverStem + "/" + locationFileName(location.getPath()) + ".conf",
                     httpLocation(server, location, httpUpstreamById.get(location.getUpstreamId()), nodeRoot, now));
             }
@@ -139,7 +141,7 @@ public class NativeConfigurationRenderer {
             files.put("stream/server/" + server.getServiceName() + "." + server.getListenPort()
                     + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", streamServer(server, streamUpstreamById.get(server.getUpstreamId()), now));
         }
-        files.put("nginx.conf", rootConfiguration(nodeRoot, now));
+        files.put("nginx.conf", rootConfiguration(nodeRoot, now, rateLimitedLocations));
         return new RenderedConfiguration(centerId, center.getCode(), now, nodeRoot + "/nginx.conf", files, warnings, checksum(files));
     }
 
@@ -175,7 +177,13 @@ public class NativeConfigurationRenderer {
         }
     }
 
-    private String rootConfiguration(String nodeRoot, Instant now) {
+    private String rootConfiguration(String nodeRoot, Instant now, List<HttpLocation> rateLimitedLocations) {
+        StringBuilder rateZones = new StringBuilder();
+        for (HttpLocation location : rateLimitedLocations) {
+            rateZones.append("    # 接口限速：按客户端 IP 统计，规则由 Location 配置维护。\n")
+                .append("    limit_req_zone $binary_remote_addr zone=").append(rateZone(location)).append(":10m rate=")
+                .append(location.getRatePerSecond()).append("r/s;\n");
+        }
         return header("nginx.conf", now)
             + "worker_processes auto;\n"
             + "# 工作进程与事件模型由平台统一维护，业务配置通过下方 include 加载。\n"
@@ -195,6 +203,7 @@ public class NativeConfigurationRenderer {
             + "    include /usr/local/openresty/nginx/conf/mime.types;\n"
             + "    default_type application/octet-stream;\n"
             + "    log_format openresty_plus '$remote_addr - $remote_user [$time_local] \\\"$request\\\" $status $body_bytes_sent';\n"
+            + rateZones
             + "    include " + nodeRoot + "/http/upstream/*.conf;\n"
             + "    include " + nodeRoot + "/http/server/*.conf;\n"
             + "}\n\n"
@@ -268,6 +277,7 @@ public class NativeConfigurationRenderer {
             + "# upstream: " + upstream.getName() + "\n"
             + "location " + location.getPath() + " {\n"
             + "    access_by_lua_block { require(\"runtime\").enforce() }\n"
+            + rateLimit(location)
             + "    proxy_pass http://" + upstream.getName() + ";\n"
             + "    proxy_connect_timeout " + location.getProxyConnectTimeoutMs() + "ms;\n"
             + "    proxy_read_timeout " + location.getProxyReadTimeoutMs() + "ms;\n"
@@ -277,6 +287,15 @@ public class NativeConfigurationRenderer {
             + "    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
             + "    proxy_set_header X-Forwarded-Proto $scheme;\n"
             + "}\n";
+    }
+
+    private static String rateZone(HttpLocation location) { return "openresty_plus_" + location.getId().toString().replace("-", ""); }
+
+    private static String rateLimit(HttpLocation location) {
+        if (!location.isRateLimitEnabled()) return "";
+        String value = "    # 请求限速：" + location.getRatePerSecond() + " 次/秒。\n    limit_req zone=" + rateZone(location);
+        if (location.getRateLimitBurst() > 0) value += " burst=" + location.getRateLimitBurst() + (location.isRateLimitNodelay() ? " nodelay" : "");
+        return value + ";\n";
     }
 
     private String streamUpstream(StreamUpstream upstream, Instant now) {
