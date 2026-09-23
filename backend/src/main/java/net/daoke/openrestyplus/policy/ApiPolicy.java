@@ -53,4 +53,5 @@ public class ApiPolicy {
     public UUID getHttpLocationId() { return httpLocationId; }
     public boolean isEnabled() { return enabled; }
     public List<ApiPolicyRule> getRules() { return List.copyOf(rules); }
+    public void changePriority(int priority) { this.priority = priority; this.updatedAt = Instant.now(); }
 }

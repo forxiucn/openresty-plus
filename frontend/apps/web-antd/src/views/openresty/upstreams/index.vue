@@ -19,7 +19,9 @@ import {
 } from 'ant-design-vue';
 
 type Center = { id: string; code: string; name: string };
-type HttpUpstream = { id: string; name: string; keepaliveConnections: number };
+type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; backup: boolean; enabled: boolean };
+type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
+type HttpUpstream = { id: string; name: string; keepaliveConnections: number; healthCheckEnabled: boolean; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; targets: HttpTarget[] };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number };
 
 const centers = ref<Center[]>([]);
@@ -30,17 +32,33 @@ const httpUpstreams = ref<HttpUpstream[]>([]);
 const streamUpstreams = ref<StreamUpstream[]>([]);
 const drawerOpen = ref(false);
 const editingId = ref<string>();
+const targetDrawerOpen = ref(false);
+const selectedHttpUpstream = ref<HttpUpstream>();
+const editingTargetId = ref<string>();
+const freshTarget = () => ({ targetHost: '', targetPort: 8080, weight: 1, maxFails: 3, failTimeoutSeconds: 10, backup: false, enabled: true });
+const targetForm = ref(freshTarget());
+const healthResults = ref<HealthResult[]>([]);
+const healthChecking = ref(false);
 
-const freshHttp = () => ({ keepaliveConnections: 32, name: '' });
+const freshHttp = () => ({ keepaliveConnections: 32, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
 const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306 });
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
 const currentList = computed(() => activeProtocol.value === 'http' ? httpUpstreams.value : streamUpstreams.value);
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const title = computed(() => activeProtocol.value === 'http' ? 'HTTP Upstream' : 'Stream Upstream');
+const targetColumns = [
+  { dataIndex: 'targetHost', key: 'targetHost', title: '地址' },
+  { dataIndex: 'targetPort', key: 'targetPort', title: '端口', width: 86 },
+  { dataIndex: 'weight', key: 'weight', title: '权重', width: 76 },
+  { key: 'health', title: '健康检查', width: 155 },
+  { key: 'status', title: '状态', width: 105 },
+  { key: 'action', title: '操作', width: 120 },
+];
 const columns = computed(() => activeProtocol.value === 'http'
   ? [
       { dataIndex: 'name', key: 'name', title: '服务标识' },
       { dataIndex: 'keepaliveConnections', key: 'keepaliveConnections', title: '长连接保留数' },
+      { dataIndex: 'targets', key: 'targets', title: '后端实例' },
       { key: 'action', title: '操作', width: 150 },
     ]
   : [
@@ -93,7 +111,7 @@ function openDrawer(value?: HttpUpstream | StreamUpstream) {
   editingId.value = value?.id;
   if (activeProtocol.value === 'http') {
     const item = value as HttpUpstream | undefined;
-    form.value = item ? { keepaliveConnections: item.keepaliveConnections, name: item.name } : freshHttp();
+    form.value = item ? { keepaliveConnections: item.keepaliveConnections, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus } : freshHttp();
   } else {
     const item = value as StreamUpstream | undefined;
     form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort } : freshStream();
@@ -127,6 +145,54 @@ async function remove(id: string) {
   } catch (error) {
     message.error(error instanceof Error ? error.message : `删除${title.value}失败`);
   }
+}
+
+function openTargets(upstream: HttpUpstream, target?: HttpTarget) {
+  selectedHttpUpstream.value = upstream;
+  editingTargetId.value = target?.id;
+  targetForm.value = target ? { ...target } : freshTarget();
+  healthResults.value = [];
+  targetDrawerOpen.value = true;
+}
+async function runHealthChecks() {
+  if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
+  healthChecking.value = true;
+  try {
+    healthResults.value = await request<HealthResult[]>(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/health-checks`);
+    message.success('健康检查已完成');
+  } catch (error) { message.error(error instanceof Error ? error.message : '健康检查失败'); }
+  finally { healthChecking.value = false; }
+}
+function addTarget() {
+  editingTargetId.value = undefined;
+  targetForm.value = freshTarget();
+}
+function editTarget(target: HttpTarget) {
+  editingTargetId.value = target.id;
+  targetForm.value = { ...target };
+}
+async function refreshSelectedTargets() {
+  if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
+  const upstreamId = selectedHttpUpstream.value.id;
+  await loadCenter(selectedCenterId.value);
+  selectedHttpUpstream.value = httpUpstreams.value.find((item) => item.id === upstreamId);
+}
+async function saveTarget() {
+  if (!selectedCenterId.value || !selectedHttpUpstream.value || !targetForm.value.targetHost) return;
+  const isEditing = Boolean(editingTargetId.value);
+  try {
+    const base = `/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets`;
+    await request(`${base}${editingTargetId.value ? `/${editingTargetId.value}` : ''}`, { method: editingTargetId.value ? 'PUT' : 'POST', body: JSON.stringify(targetForm.value) });
+    await refreshSelectedTargets(); addTarget(); message.success(isEditing ? '后端实例已更新' : '后端实例已添加');
+  } catch (error) { message.error(error instanceof Error ? error.message : '保存后端实例失败'); }
+}
+async function removeTarget(target: HttpTarget) {
+  if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
+  try { await request(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/${target.id}`, { method: 'DELETE' }); await refreshSelectedTargets(); addTarget(); message.success('后端实例已删除'); } catch (error) { message.error(error instanceof Error ? error.message : '删除后端实例失败'); }
+}
+async function removeCurrentTarget() {
+  const target = selectedHttpUpstream.value?.targets.find((item) => item.id === editingTargetId.value);
+  if (target) await removeTarget(target);
 }
 
 function switchProtocol(key: string) {
@@ -185,6 +251,9 @@ onMounted(load);
           <template v-if="column.key === 'keepaliveConnections'">
             <a-tag color="blue">{{ record.keepaliveConnections }} 个连接</a-tag>
           </template>
+          <template v-else-if="column.key === 'targets'">
+            <a-button type="link" @click="openTargets(record)">管理 {{ record.targets?.length || 0 }} 个实例</a-button>
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" @click="openDrawer(record)">编辑</a-button>
             <a-popconfirm title="确认删除该 Upstream？已关联的配置可能无法继续转发。" @confirm="remove(record.id)">
@@ -205,6 +274,19 @@ onMounted(load);
           <a-form-item label="长连接保留数" extra="Nginx 与后端服务之间长期保留的最大空闲连接数。" required>
             <a-input-number v-model:value="form.keepaliveConnections" class="w-full" :max="10000" :min="1" />
           </a-form-item>
+          <a-form-item label="主动健康检查">
+            <a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox>
+          </a-form-item>
+          <template v-if="form.healthCheckEnabled">
+            <a-form-item label="健康检查路径" extra="控制面调用每个 HTTP 后端实例时使用的路径。">
+              <a-input v-model:value="form.healthCheckPath" placeholder="/health" />
+            </a-form-item>
+            <div class="grid grid-cols-3 gap-4">
+              <a-form-item label="间隔（秒）"><a-input-number v-model:value="form.healthCheckIntervalSeconds" class="w-full" :min="1" :max="3600" /></a-form-item>
+              <a-form-item label="超时（毫秒）"><a-input-number v-model:value="form.healthCheckTimeoutMilliseconds" class="w-full" :min="50" :max="60000" /></a-form-item>
+              <a-form-item label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item>
+            </div>
+          </template>
         </template>
         <template v-else>
           <a-form-item label="目标地址" required>
@@ -221,6 +303,22 @@ onMounted(load);
           <a-button type="primary" @click="save">保存</a-button>
         </div>
       </template>
+    </a-drawer>
+    <a-drawer v-model:open="targetDrawerOpen" :title="`管理 ${selectedHttpUpstream?.name || ''} 的 HTTP 后端实例`" :width="720">
+      <a-alert class="mb-4" type="info" show-icon message="保存后请在“版本与审计”中生成原生配置并重载，新的后端实例才会参与转发。" />
+      <div class="mb-3 flex items-center justify-between"><span class="text-sm text-gray-500">{{ selectedHttpUpstream?.healthCheckEnabled ? `主动检查：${selectedHttpUpstream.healthCheckPath}，每 ${selectedHttpUpstream.healthCheckIntervalSeconds} 秒` : '未启用主动健康检查' }}</span><a-button :disabled="!selectedHttpUpstream?.healthCheckEnabled" :loading="healthChecking" @click="runHealthChecks">立即检查</a-button></div>
+      <a-alert v-if="healthResults.length" class="mb-4" :type="healthResults.every((item) => item.status === 'HEALTHY') ? 'success' : 'warning'" show-icon :message="healthResults.map((item) => `${item.targetHost}:${item.targetPort} ${item.status === 'HEALTHY' ? '健康' : item.status === 'NOT_CONFIGURED' ? '未配置' : '异常'}${item.httpStatus ? `（${item.httpStatus}）` : ''}`).join('；')" />
+      <a-table class="mb-5" :columns="targetColumns" :data-source="selectedHttpUpstream?.targets || []" :pagination="false" row-key="id" size="small">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'health'">{{ record.maxFails }} 次失败 / {{ record.failTimeoutSeconds }} 秒</template>
+          <template v-else-if="column.key === 'status'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag><a-tag v-if="record.backup" color="orange">备用</a-tag></template>
+          <template v-else-if="column.key === 'action'"><a-button type="link" @click="editTarget(record)">编辑</a-button><a-popconfirm title="确认删除该后端实例？" @confirm="removeTarget(record)"><a-button danger type="link">删除</a-button></a-popconfirm></template>
+        </template>
+      </a-table>
+      <a-empty v-if="!(selectedHttpUpstream?.targets?.length)" class="mb-5" description="尚未配置后端实例" />
+      <div class="mb-3 flex items-center justify-between"><span class="text-base font-medium">{{ editingTargetId ? '编辑后端实例' : '新增后端实例' }}</span><a-button type="link" @click="addTarget">清空并新增</a-button></div>
+      <a-form layout="vertical"><a-form-item label="后端地址" required><a-input v-model:value="targetForm.targetHost" placeholder="如 10.0.0.10 或 api.internal" /></a-form-item><div class="grid grid-cols-2 gap-4"><a-form-item label="后端端口" required><a-input-number v-model:value="targetForm.targetPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="权重"><a-input-number v-model:value="targetForm.weight" class="w-full" :min="1" :max="1000" /></a-form-item><a-form-item label="最大失败次数"><a-input-number v-model:value="targetForm.maxFails" class="w-full" :min="0" :max="100" /></a-form-item><a-form-item label="失败判定时间（秒）"><a-input-number v-model:value="targetForm.failTimeoutSeconds" class="w-full" :min="1" :max="3600" /></a-form-item></div><a-form-item><a-checkbox v-model:checked="targetForm.backup">作为备用实例</a-checkbox><a-checkbox v-model:checked="targetForm.enabled" class="ml-4">启用实例</a-checkbox></a-form-item></a-form>
+      <template #footer><div class="flex justify-end gap-2"><a-popconfirm v-if="editingTargetId" title="确认删除当前后端实例？" @confirm="removeCurrentTarget"><a-button danger>删除当前项</a-button></a-popconfirm><a-button @click="targetDrawerOpen=false">关闭</a-button><a-button type="primary" @click="saveTarget">{{ editingTargetId ? '保存修改' : '添加实例' }}</a-button></div></template>
     </a-drawer>
   </div>
 </template>

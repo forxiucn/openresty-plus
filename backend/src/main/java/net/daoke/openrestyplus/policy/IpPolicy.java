@@ -75,4 +75,5 @@ public class IpPolicy {
     public UUID getTargetResourceId() { return targetResourceId; }
     public boolean isEnabled() { return enabled; }
     public JsonNode getIpRules() { return ipRules; }
+    public void changePriority(int priority) { this.priority = priority; this.updatedAt = Instant.now(); }
 }

@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import net.daoke.openrestyplus.center.CenterRepository;
 import net.daoke.openrestyplus.audit.AuditService;
+import net.daoke.openrestyplus.tls.TlsCertificateRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,14 +33,16 @@ public class HttpServerController {
     private final HttpLocationRepository locations;
     private final HttpUpstreamRepository upstreams;
     private final AuditService audit;
+    private final TlsCertificateRepository certificates;
 
     public HttpServerController(CenterRepository centers, HttpServerRepository servers,
-                                HttpLocationRepository locations, HttpUpstreamRepository upstreams, AuditService audit) {
+                                HttpLocationRepository locations, HttpUpstreamRepository upstreams, AuditService audit, TlsCertificateRepository certificates) {
         this.centers = centers;
         this.servers = servers;
         this.locations = locations;
         this.upstreams = upstreams;
         this.audit = audit;
+        this.certificates = certificates;
     }
 
     @GetMapping
@@ -53,8 +56,9 @@ public class HttpServerController {
     public ServerView create(@PathVariable UUID centerId, @Valid @RequestBody CreateServerRequest request) {
         requireCenter(centerId);
         requireCenterUpstream(centerId, request.upstreamId());
+        requireCertificate(centerId, request.sslEnabled(), request.certificateId());
         var saved = servers.save(new HttpServer(centerId, request.domain(), request.listenPort(),
-            request.sslEnabled(), request.upstreamId(), request.accessLog(), request.errorLog()));
+            request.sslEnabled(), request.certificateId(), request.upstreamId(), request.accessLog(), request.errorLog()));
         audit.success(centerId, "HTTP_SERVER_CREATED", "HTTP_SERVER", saved.getId());
         return ServerView.from(saved);
     }
@@ -63,8 +67,9 @@ public class HttpServerController {
     public ServerView update(@PathVariable UUID centerId, @PathVariable UUID serverId,
                              @Valid @RequestBody CreateServerRequest request) {
         requireCenterUpstream(centerId, request.upstreamId());
+        requireCertificate(centerId, request.sslEnabled(), request.certificateId());
         var server = requireServerEntity(centerId, serverId);
-        server.apply(request.domain(), request.listenPort(), request.sslEnabled(), request.upstreamId(),
+        server.apply(request.domain(), request.listenPort(), request.sslEnabled(), request.certificateId(), request.upstreamId(),
             request.accessLog(), request.errorLog());
         var saved = servers.save(server);
         audit.success(centerId, "HTTP_SERVER_UPDATED", "HTTP_SERVER", serverId);
@@ -93,7 +98,8 @@ public class HttpServerController {
         var saved = locations.save(new HttpLocation(serverId, request.path(), request.methods(),
             request.contentTypes(), request.headerLengthMin(), request.headerLengthMax(), request.bodyLengthMin(),
             request.bodyLengthMax(), request.upstreamId(), request.proxyConnectTimeoutMs(),
-            request.proxyReadTimeoutMs(), request.proxySendTimeoutMs()));
+            request.proxyReadTimeoutMs(), request.proxySendTimeoutMs(), request.rateLimitEnabled(),
+            request.ratePerSecond(), request.rateLimitBurst(), request.rateLimitNodelay()));
         audit.success(centerId, "HTTP_LOCATION_CREATED", "HTTP_LOCATION", saved.getId());
         return LocationView.from(saved);
     }
@@ -106,7 +112,8 @@ public class HttpServerController {
         var location = requireLocation(serverId, locationId);
         location.apply(request.path(), request.methods(), request.contentTypes(), request.headerLengthMin(),
             request.headerLengthMax(), request.bodyLengthMin(), request.bodyLengthMax(), request.upstreamId(),
-            request.proxyConnectTimeoutMs(), request.proxyReadTimeoutMs(), request.proxySendTimeoutMs());
+            request.proxyConnectTimeoutMs(), request.proxyReadTimeoutMs(), request.proxySendTimeoutMs(),
+            request.rateLimitEnabled(), request.ratePerSecond(), request.rateLimitBurst(), request.rateLimitNodelay());
         var saved = locations.save(location);
         audit.success(centerId, "HTTP_LOCATION_UPDATED", "HTTP_LOCATION", locationId);
         return LocationView.from(saved);
@@ -131,6 +138,12 @@ public class HttpServerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upstream does not belong to this center");
         }
     }
+    private void requireCertificate(UUID centerId, boolean sslEnabled, UUID certificateId) {
+        if (sslEnabled && certificateId == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "TLS server must select a certificate");
+        if (certificateId != null && certificates.findByIdAndCenterId(certificateId, centerId).filter(value -> value.isEnabled() || !sslEnabled).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "TLS certificate does not belong to this center or is disabled");
+        }
+    }
 
     private void requireServer(UUID centerId, UUID serverId) {
         if (servers.findByIdAndCenterId(serverId, centerId).isEmpty()) {
@@ -150,6 +163,7 @@ public class HttpServerController {
         @NotBlank String domain,
         @Min(1) @Max(65535) int listenPort,
         boolean sslEnabled,
+        UUID certificateId,
         UUID upstreamId,
         String accessLog,
         String errorLog
@@ -176,7 +190,11 @@ public class HttpServerController {
         @NotNull UUID upstreamId,
         @Min(1) int proxyConnectTimeoutMs,
         @Min(1) int proxyReadTimeoutMs,
-        @Min(1) int proxySendTimeoutMs
+        @Min(1) int proxySendTimeoutMs,
+        boolean rateLimitEnabled,
+        @Min(1) @Max(100000) int ratePerSecond,
+        @Min(0) @Max(100000) int rateLimitBurst,
+        boolean rateLimitNodelay
     ) {
         @AssertTrue(message = "headerLengthMin must not exceed headerLengthMax")
         public boolean isHeaderLengthRangeValid() { return headerLengthMin <= headerLengthMax; }
@@ -185,24 +203,26 @@ public class HttpServerController {
         public boolean isBodyLengthRangeValid() { return bodyLengthMin <= bodyLengthMax; }
     }
 
-    public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID upstreamId,
+    public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
                              String accessLog, String errorLog) {
         static ServerView from(HttpServer server) {
             return new ServerView(server.getId(), server.getDomain(), server.getListenPort(), server.isSslEnabled(),
-                server.getUpstreamId(), server.getAccessLog(), server.getErrorLog());
+                server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog());
         }
     }
 
     public record LocationView(UUID id, String path, List<String> methods, List<String> contentTypes,
                                int headerLengthMin, int headerLengthMax, long bodyLengthMin, long bodyLengthMax,
                                UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs,
-                               int proxySendTimeoutMs) {
+                               int proxySendTimeoutMs, boolean rateLimitEnabled, int ratePerSecond,
+                               int rateLimitBurst, boolean rateLimitNodelay) {
         static LocationView from(HttpLocation location) {
             return new LocationView(location.getId(), location.getPath(), location.getMethods(),
                 location.getContentTypes(), location.getHeaderLengthMin(), location.getHeaderLengthMax(),
                 location.getBodyLengthMin(), location.getBodyLengthMax(), location.getUpstreamId(),
                 location.getProxyConnectTimeoutMs(), location.getProxyReadTimeoutMs(),
-                location.getProxySendTimeoutMs());
+                location.getProxySendTimeoutMs(), location.isRateLimitEnabled(), location.getRatePerSecond(),
+                location.getRateLimitBurst(), location.isRateLimitNodelay());
         }
     }
 }

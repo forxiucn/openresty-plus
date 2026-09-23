@@ -58,6 +58,24 @@ public class ApiPolicyController {
         policies.delete(requirePolicy(centerId, policyId));
         audit.success(centerId, "API_POLICY_DELETED", "API_POLICY", policyId);
     }
+    @PostMapping("/{policyId}/move")
+    public List<View> move(@PathVariable UUID centerId, @PathVariable UUID policyId,
+                           @RequestParam String direction) {
+        var policy = requirePolicy(centerId, policyId);
+        int offset = "UP".equalsIgnoreCase(direction) ? -1 : "DOWN".equalsIgnoreCase(direction) ? 1 : 0;
+        if (offset == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction must be UP or DOWN");
+        var scoped = policies.findByCenterIdAndHttpLocationIdOrderByPriorityAscIdAsc(centerId, policy.getHttpLocationId());
+        int index = scoped.stream().map(ApiPolicy::getId).toList().indexOf(policyId);
+        int next = index + offset;
+        if (next >= 0 && next < scoped.size()) {
+            var other = scoped.get(next);
+            int currentPriority = policy.getPriority();
+            policy.changePriority(other.getPriority()); other.changePriority(currentPriority);
+            policies.saveAll(List.of(policy, other));
+            audit.success(centerId, "API_POLICY_PRIORITY_CHANGED", "API_POLICY", policyId);
+        }
+        return policies.findByCenterIdOrderByPriorityAscIdAsc(centerId).stream().map(View::from).toList();
+    }
 
     private ApiPolicy toPolicy(UUID centerId, Request request) {
         return new ApiPolicy(centerId, request.mode(), request.priority(), request.httpLocationId(), request.enabled(), toRules(request.rules()));

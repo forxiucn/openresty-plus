@@ -7,6 +7,9 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import net.daoke.openrestyplus.center.CenterRepository;
 import net.daoke.openrestyplus.audit.AuditService;
+import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
+import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
+import net.daoke.openrestyplus.streamconfig.StreamServerRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,12 +22,20 @@ import java.util.UUID;
 public class IpPolicyController {
     private final CenterRepository centers;
     private final IpPolicyRepository policies;
+    private final HttpServerRepository httpServers;
+    private final HttpLocationRepository httpLocations;
+    private final StreamServerRepository streamServers;
     private final AuditService audit;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public IpPolicyController(CenterRepository centers, IpPolicyRepository policies, AuditService audit) {
+    public IpPolicyController(CenterRepository centers, IpPolicyRepository policies,
+                              HttpServerRepository httpServers, HttpLocationRepository httpLocations,
+                              StreamServerRepository streamServers, AuditService audit) {
         this.centers = centers;
         this.policies = policies;
+        this.httpServers = httpServers;
+        this.httpLocations = httpLocations;
+        this.streamServers = streamServers;
         this.audit = audit;
     }
 
@@ -51,6 +62,7 @@ public class IpPolicyController {
     public View create(@PathVariable UUID centerId, @Valid @RequestBody Request request) {
         requireCenter(centerId);
         validateRules(request.ipRules());
+        validateTarget(centerId, request.scope(), request.targetResourceId());
         var saved = policies.save(new IpPolicy(centerId, request.mode(), request.priority(), request.scope(),
             request.targetResourceId(), request.enabled(), rulesNode(request.ipRules())));
         audit.success(centerId, "IP_POLICY_CREATED", "IP_POLICY", saved.getId());
@@ -60,6 +72,7 @@ public class IpPolicyController {
     @PutMapping("/{policyId}")
     public View update(@PathVariable UUID centerId, @PathVariable UUID policyId, @Valid @RequestBody Request request) {
         validateRules(request.ipRules());
+        validateTarget(centerId, request.scope(), request.targetResourceId());
         var policy = requirePolicy(centerId, policyId);
         policy.apply(request.mode(), request.priority(), request.scope(), request.targetResourceId(), request.enabled(), rulesNode(request.ipRules()));
         var saved = policies.save(policy);
@@ -74,10 +87,40 @@ public class IpPolicyController {
         audit.success(centerId, "IP_POLICY_DELETED", "IP_POLICY", policyId);
     }
 
+    @PostMapping("/{policyId}/move")
+    public List<View> move(@PathVariable UUID centerId, @PathVariable UUID policyId,
+                           @RequestParam String direction) {
+        var policy = requirePolicy(centerId, policyId);
+        int offset = "UP".equalsIgnoreCase(direction) ? -1 : "DOWN".equalsIgnoreCase(direction) ? 1 : 0;
+        if (offset == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction must be UP or DOWN");
+        var scoped = policies.findByCenterIdAndScopeAndTargetResourceIdOrderByPriorityAscIdAsc(centerId,
+            policy.getScope(), policy.getTargetResourceId());
+        int index = scoped.stream().map(IpPolicy::getId).toList().indexOf(policyId);
+        int next = index + offset;
+        if (next >= 0 && next < scoped.size()) {
+            var other = scoped.get(next);
+            int currentPriority = policy.getPriority();
+            policy.changePriority(other.getPriority()); other.changePriority(currentPriority);
+            policies.saveAll(List.of(policy, other));
+            audit.success(centerId, "IP_POLICY_PRIORITY_CHANGED", "IP_POLICY", policyId);
+        }
+        return policies.findByCenterIdOrderByPriorityAscIdAsc(centerId).stream().map(View::from).toList();
+    }
+
     private void validateRules(List<String> rules) {
         if (rules == null || rules.isEmpty() || rules.stream().anyMatch(value -> value == null || value.isBlank())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ipRules must be a non-empty JSON array");
         }
+    }
+    /** Ensures a policy can only be attached to a resource in the same center. */
+    private void validateTarget(UUID centerId, IpPolicyScope scope, UUID targetResourceId) {
+        boolean exists = switch (scope) {
+            case HTTP_SERVER -> httpServers.findByIdAndCenterId(targetResourceId, centerId).isPresent();
+            case HTTP_LOCATION -> httpLocations.findById(targetResourceId)
+                .flatMap(location -> httpServers.findByIdAndCenterId(location.getServerId(), centerId)).isPresent();
+            case STREAM -> streamServers.findByIdAndCenterId(targetResourceId, centerId).isPresent();
+        };
+        if (!exists) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The policy target does not belong to this center");
     }
     private JsonNode rulesNode(List<String> rules) { return objectMapper.valueToTree(rules); }
     private void requireCenter(UUID centerId) {

@@ -84,4 +84,4 @@ docker compose -f docker-compose.yaml -f docker-compose.host-network.yaml \
 
 同一宿主机只能运行一个使用相同监听端口的 Host 网络 OpenResty 容器。多节点应部署到不同主机；若必须同机运行，所有 HTTP、Stream 和 Control API 管理端口都必须互不冲突。
 
-当前 HTTP upstream 数据模型只保存名称和 keepalive，没有后端目标列表。渲染器会放入一个 `down` 占位 server，使 `nginx -t` 可以通过；流量不会被转发，直到后端目标模型完成。启用 TLS 的 HTTP server 也会在预览中给出证书引用缺失提示，生成监听保持为 HTTP，避免产生无法通过校验的配置。
+HTTP Upstream 支持在界面中维护多个后端实例：地址、端口、权重、最大失败次数、失败判定时间、备用实例和启停状态。原生渲染会只写入已启用实例，并生成对应的 `server`、`weight`、`max_fails` 与 `fail_timeout` 指令；未配置启用实例时会保留一个 `down` 占位，确保 `nginx -t` 可通过且不会误转发流量。启用 TLS 的 HTTP server 也会在预览中给出证书引用缺失提示，生成监听保持为 HTTP，避免产生无法通过校验的配置。

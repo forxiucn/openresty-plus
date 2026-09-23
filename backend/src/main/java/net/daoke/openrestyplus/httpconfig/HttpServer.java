@@ -24,6 +24,7 @@ public class HttpServer {
     @Column(nullable = false, length = 255) private String domain;
     @Column(name = "listen_port", nullable = false) private int listenPort;
     @Column(name = "ssl_enabled", nullable = false) private boolean sslEnabled;
+    @Column(name = "certificate_id") @JdbcTypeCode(Types.BINARY) private UUID certificateId;
     @Column(name = "upstream_id") @JdbcTypeCode(Types.BINARY) private UUID upstreamId;
     @Column(name = "access_log", nullable = false, length = 512) private String accessLog;
     @Column(name = "error_log", nullable = false, length = 512) private String errorLog;
@@ -31,18 +32,19 @@ public class HttpServer {
 
     protected HttpServer() { }
 
-    public HttpServer(UUID centerId, String domain, int listenPort, boolean sslEnabled, UUID upstreamId,
+    public HttpServer(UUID centerId, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
                       String accessLog, String errorLog) {
         this.centerId = centerId;
         this.domain = domain;
         this.listenPort = listenPort;
         this.sslEnabled = sslEnabled;
+        this.certificateId = certificateId;
         this.upstreamId = upstreamId;
         this.accessLog = accessLog;
         this.errorLog = errorLog;
     }
-    public void apply(String domain, int listenPort, boolean sslEnabled, UUID upstreamId, String accessLog, String errorLog) {
-        this.domain = domain; this.listenPort = listenPort; this.sslEnabled = sslEnabled; this.upstreamId = upstreamId;
+    public void apply(String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId, String accessLog, String errorLog) {
+        this.domain = domain; this.listenPort = listenPort; this.sslEnabled = sslEnabled; this.certificateId = certificateId; this.upstreamId = upstreamId;
         this.accessLog = accessLog; this.errorLog = errorLog;
     }
 
@@ -51,6 +53,7 @@ public class HttpServer {
     public String getDomain() { return domain; }
     public int getListenPort() { return listenPort; }
     public boolean isSslEnabled() { return sslEnabled; }
+    public UUID getCertificateId() { return certificateId; }
     public UUID getUpstreamId() { return upstreamId; }
     public String getAccessLog() { return accessLog; }
     public String getErrorLog() { return errorLog; }

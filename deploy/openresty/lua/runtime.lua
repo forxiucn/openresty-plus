@@ -197,11 +197,24 @@ end
 
 local function enforce_ip_policies(content, server_id, location_id)
   local client_ip = ngx.var.remote_addr or ""
-  for _, policy in ipairs(content.ipPolicies or {}) do
+  local policies = {}
+  for _, policy in ipairs(content.ipPolicies or {}) do policies[#policies + 1] = policy end
+  table.sort(policies, function(left, right)
+    local lp, rp = tonumber(left.priority) or 0, tonumber(right.priority) or 0
+    if lp ~= rp then return lp < rp end
+    return tostring(left.id or "") < tostring(right.id or "")
+  end)
+  for _, policy in ipairs(policies) do
     if policy.enabled and applies_to_http(policy, server_id, location_id) then
       local matches = ip_matches(client_ip, policy.ipRules)
       if policy.mode == "BLACKLIST" and matches then return reject("ip-blacklist") end
-      if policy.mode == "WHITELIST" and not matches then return reject("ip-whitelist") end
+      -- A matching whitelist is an explicit allow decision at this priority;
+      -- a non-match is denied immediately. Lower-priority policies do not
+      -- silently override this decision.
+      if policy.mode == "WHITELIST" then
+        if matches then return "allow" end
+        return reject("ip-whitelist")
+      end
     end
   end
 end
@@ -227,11 +240,21 @@ function _M.enforce()
   end
   enforce_ip_policies(content, server_id, location_id)
   if not location_id then return end
-  for _, policy in ipairs(content.apiPolicies or {}) do
+  local policies = {}
+  for _, policy in ipairs(content.apiPolicies or {}) do policies[#policies + 1] = policy end
+  table.sort(policies, function(left, right)
+    local lp, rp = tonumber(left.priority) or 0, tonumber(right.priority) or 0
+    if lp ~= rp then return lp < rp end
+    return tostring(left.id or "") < tostring(right.id or "")
+  end)
+  for _, policy in ipairs(policies) do
     if policy.enabled and tostring(policy.httpLocationId) == tostring(location_id) then
       local matches = api_matches(policy)
       if policy.mode == "BLACKLIST" and matches then return reject("api-blacklist") end
-      if policy.mode == "WHITELIST" and not matches then return reject("api-whitelist") end
+      if policy.mode == "WHITELIST" then
+        if matches then return end
+        return reject("api-whitelist")
+      end
     end
   end
 end

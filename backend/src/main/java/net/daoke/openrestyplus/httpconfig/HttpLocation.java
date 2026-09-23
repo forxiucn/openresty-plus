@@ -37,13 +37,18 @@ public class HttpLocation {
     @Column(name = "proxy_connect_timeout_ms", nullable = false) private int proxyConnectTimeoutMs;
     @Column(name = "proxy_read_timeout_ms", nullable = false) private int proxyReadTimeoutMs;
     @Column(name = "proxy_send_timeout_ms", nullable = false) private int proxySendTimeoutMs;
+    @Column(name = "rate_limit_enabled", nullable = false) private boolean rateLimitEnabled;
+    @Column(name = "rate_per_second", nullable = false) private int ratePerSecond;
+    @Column(name = "rate_limit_burst", nullable = false) private int rateLimitBurst;
+    @Column(name = "rate_limit_nodelay", nullable = false) private boolean rateLimitNodelay;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpLocation() { }
 
     public HttpLocation(UUID serverId, String path, List<String> methods, List<String> contentTypes,
                         int headerLengthMin, int headerLengthMax, long bodyLengthMin, long bodyLengthMax,
-                        UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs, int proxySendTimeoutMs) {
+                        UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs, int proxySendTimeoutMs,
+                        boolean rateLimitEnabled, int ratePerSecond, int rateLimitBurst, boolean rateLimitNodelay) {
         this.serverId = serverId;
         this.path = path;
         this.methods = List.copyOf(methods);
@@ -56,15 +61,20 @@ public class HttpLocation {
         this.proxyConnectTimeoutMs = proxyConnectTimeoutMs;
         this.proxyReadTimeoutMs = proxyReadTimeoutMs;
         this.proxySendTimeoutMs = proxySendTimeoutMs;
+        this.rateLimitEnabled = rateLimitEnabled; this.ratePerSecond = ratePerSecond;
+        this.rateLimitBurst = rateLimitBurst; this.rateLimitNodelay = rateLimitNodelay;
     }
     public void apply(String path, List<String> methods, List<String> contentTypes,
                       int headerLengthMin, int headerLengthMax, long bodyLengthMin, long bodyLengthMax,
-                      UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs, int proxySendTimeoutMs) {
+                      UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs, int proxySendTimeoutMs,
+                      boolean rateLimitEnabled, int ratePerSecond, int rateLimitBurst, boolean rateLimitNodelay) {
         this.path = path; this.methods = List.copyOf(methods); this.contentTypes = List.copyOf(contentTypes);
         this.headerLengthMin = headerLengthMin; this.headerLengthMax = headerLengthMax;
         this.bodyLengthMin = bodyLengthMin; this.bodyLengthMax = bodyLengthMax; this.upstreamId = upstreamId;
         this.proxyConnectTimeoutMs = proxyConnectTimeoutMs; this.proxyReadTimeoutMs = proxyReadTimeoutMs;
         this.proxySendTimeoutMs = proxySendTimeoutMs;
+        this.rateLimitEnabled = rateLimitEnabled; this.ratePerSecond = ratePerSecond;
+        this.rateLimitBurst = rateLimitBurst; this.rateLimitNodelay = rateLimitNodelay;
     }
 
     public UUID getId() { return id; }
@@ -80,4 +90,8 @@ public class HttpLocation {
     public int getProxyConnectTimeoutMs() { return proxyConnectTimeoutMs; }
     public int getProxyReadTimeoutMs() { return proxyReadTimeoutMs; }
     public int getProxySendTimeoutMs() { return proxySendTimeoutMs; }
+    public boolean isRateLimitEnabled() { return rateLimitEnabled; }
+    public int getRatePerSecond() { return ratePerSecond; }
+    public int getRateLimitBurst() { return rateLimitBurst; }
+    public boolean isRateLimitNodelay() { return rateLimitNodelay; }
 }

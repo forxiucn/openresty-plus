@@ -7,6 +7,10 @@ import net.daoke.openrestyplus.httpconfig.HttpServer;
 import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
 import net.daoke.openrestyplus.httpconfig.HttpUpstream;
 import net.daoke.openrestyplus.httpconfig.HttpUpstreamRepository;
+import net.daoke.openrestyplus.httpconfig.HttpUpstreamTarget;
+import net.daoke.openrestyplus.httpconfig.HttpUpstreamTargetRepository;
+import net.daoke.openrestyplus.tls.TlsCertificate;
+import net.daoke.openrestyplus.tls.TlsCertificateRepository;
 import net.daoke.openrestyplus.streamconfig.StreamProtocol;
 import net.daoke.openrestyplus.streamconfig.StreamServer;
 import net.daoke.openrestyplus.streamconfig.StreamServerRepository;
@@ -48,23 +52,29 @@ public class NativeConfigurationRenderer {
 
     private final CenterRepository centers;
     private final HttpUpstreamRepository httpUpstreams;
+    private final HttpUpstreamTargetRepository httpUpstreamTargets;
     private final HttpServerRepository httpServers;
     private final HttpLocationRepository httpLocations;
+    private final TlsCertificateRepository tlsCertificates;
     private final StreamUpstreamRepository streamUpstreams;
     private final StreamServerRepository streamServers;
     private final Path renderRoot;
 
     public NativeConfigurationRenderer(CenterRepository centers,
                                        HttpUpstreamRepository httpUpstreams,
+                                       HttpUpstreamTargetRepository httpUpstreamTargets,
                                        HttpServerRepository httpServers,
                                        HttpLocationRepository httpLocations,
+                                       TlsCertificateRepository tlsCertificates,
                                        StreamUpstreamRepository streamUpstreams,
                                        StreamServerRepository streamServers,
                                        @Value("${OPENRESTY_RENDER_ROOT:/tmp/openresty-plus/rendered}") String renderRoot) {
         this.centers = centers;
         this.httpUpstreams = httpUpstreams;
+        this.httpUpstreamTargets = httpUpstreamTargets;
         this.httpServers = httpServers;
         this.httpLocations = httpLocations;
+        this.tlsCertificates = tlsCertificates;
         this.streamUpstreams = streamUpstreams;
         this.streamServers = streamServers;
         this.renderRoot = Path.of(renderRoot).toAbsolutePath().normalize();
@@ -83,11 +93,13 @@ public class NativeConfigurationRenderer {
         Map<UUID, HttpUpstream> httpUpstreamById = index(httpUpstreams.findByCenterIdOrderByName(centerId));
         Map<UUID, StreamUpstream> streamUpstreamById = index(streamUpstreams.findByCenterIdOrderByName(centerId));
         List<HttpServer> httpServerValues = httpServers.findByCenterIdOrderByDomainAscListenPortAsc(centerId);
+        Map<UUID, TlsCertificate> certificateById = new LinkedHashMap<>();
+        for (TlsCertificate certificate : tlsCertificates.findByCenterIdOrderByName(centerId)) certificateById.put(certificate.getId(), certificate);
         List<StreamServer> streamServerValues = streamServers.findByCenterIdOrderByListenPortAsc(centerId);
 
         for (HttpUpstream upstream : httpUpstreamById.values()) {
             requireName(upstream.getName(), "HTTP upstream name");
-            files.put("http/upstream/" + upstream.getName() + ".conf", httpUpstream(upstream, now));
+            files.put("http/upstream/" + upstream.getName() + ".conf", httpUpstream(upstream, httpUpstreamTargets.findByUpstreamIdOrderByTargetHostAscTargetPortAsc(upstream.getId()), now));
         }
         for (HttpServer server : httpServerValues) {
             requireHost(server.getDomain(), "HTTP server domain");
@@ -104,11 +116,15 @@ public class NativeConfigurationRenderer {
             files.put("http/location/" + serverStem + "/" + locationFileName(location.getPath()) + ".conf",
                     httpLocation(server, location, httpUpstreamById.get(location.getUpstreamId()), nodeRoot, now));
             }
+            TlsCertificate certificate = null;
             if (server.isSslEnabled()) {
-                warnings.add("HTTP " + server.getDomain() + ":" + server.getListenPort()
-                    + " requests TLS, but the current model has no certificate reference. The generated listener remains plain HTTP until certificate fields are added.");
+                certificate = certificateById.get(server.getCertificateId());
+                if (certificate == null || !certificate.isEnabled()) throw invalid("TLS server " + server.getDomain() + " must reference an enabled center certificate");
+                String certificateStem = "certificates/" + certificate.getId();
+                files.put(certificateStem + ".crt", certificate.getCertificatePem() + (certificate.getChainPem() == null || certificate.getChainPem().isBlank() ? "" : "\n" + certificate.getChainPem()));
+                files.put(certificateStem + ".key", certificate.getPrivateKeyPem());
             }
-            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, now));
+            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, certificate, now));
         }
         for (StreamUpstream upstream : streamUpstreamById.values()) {
             requireName(upstream.getName(), "Stream upstream name");
@@ -192,28 +208,47 @@ public class NativeConfigurationRenderer {
             + "}\n";
     }
 
-    private String httpUpstream(HttpUpstream upstream, Instant now) {
-        // The present HTTP upstream model has no endpoint table. A down placeholder keeps nginx -t valid
-        // while making the missing endpoint explicit during traffic instead of silently forwarding elsewhere.
+    private String httpUpstream(HttpUpstream upstream, List<HttpUpstreamTarget> targets, Instant now) {
         return header("http.upstream." + upstream.getName() + ".conf", now)
             + "# HTTP 上游服务：" + upstream.getName() + "。\n"
-            + "# 当前未维护后端实例列表，down 占位用于保证配置语法安全。\n"
             + "upstream " + upstream.getName() + " {\n"
-            + "    server 127.0.0.1:1 down max_fails=3 fail_timeout=10s;\n"
+            + upstreamTargets(targets)
             + "    keepalive " + upstream.getKeepaliveConnections() + ";\n"
             + "}\n";
     }
 
-    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, Instant now) {
+    private String upstreamTargets(List<HttpUpstreamTarget> targets) {
+        var active = targets.stream().filter(HttpUpstreamTarget::isEnabled).toList();
+        if (active.isEmpty()) return "    # 尚未配置启用的后端实例，使用 down 占位防止误转发。\n    server 127.0.0.1:1 down max_fails=3 fail_timeout=10s;\n";
+        StringBuilder value = new StringBuilder();
+        for (HttpUpstreamTarget target : active) {
+            value.append("    # 后端实例：").append(target.getTargetHost()).append(':').append(target.getTargetPort()).append("。\n")
+                .append("    server ").append(hostPort(target.getTargetHost(), target.getTargetPort()))
+                .append(" weight=").append(target.getWeight()).append(" max_fails=").append(target.getMaxFails())
+                .append(" fail_timeout=").append(target.getFailTimeoutSeconds()).append('s');
+            if (target.isBackup()) value.append(" backup");
+            value.append(";\n");
+        }
+        return value.toString();
+    }
+
+    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, TlsCertificate certificate, Instant now) {
         String stem = server.getDomain() + "." + server.getListenPort() + (server.isSslEnabled() ? ".ssl" : "");
         StringBuilder result = new StringBuilder(header("http.server." + stem + ".conf", now));
         result.append("# HTTP 虚拟主机：").append(server.getDomain()).append(':').append(server.getListenPort()).append("。\n")
             .append("# 每个监听端口独立配置，接口规则通过 include 载入。\n");
         result.append("server {\n")
-            .append("    listen ").append(server.getListenPort()).append(";\n")
+            .append("    listen ").append(server.getListenPort()).append(server.isSslEnabled() ? " ssl" : "").append(";\n")
             .append("    server_name ").append(server.getDomain()).append(";\n")
             .append("    access_log ").append(directivePath(server.getAccessLog())).append(" openresty_plus;\n")
             .append("    error_log ").append(directivePath(server.getErrorLog())).append(" warn;\n");
+        if (server.isSslEnabled()) {
+            String certificateStem = nodeRoot + "/certificates/" + certificate.getId();
+            result.append("    # TLS 证书：").append(certificate.getName()).append("（").append(certificate.getCommonName()).append("）。\n")
+                .append("    ssl_certificate ").append(certificateStem).append(".crt;\n")
+                .append("    ssl_certificate_key ").append(certificateStem).append(".key;\n")
+                .append("    ssl_protocols TLSv1.2 TLSv1.3;\n");
+        }
         for (HttpLocation location : locations) {
             result.append("    include ").append(nodeRoot).append("/http/location/").append(stem)
                 .append('/').append(locationFileName(location.getPath())).append(".conf;\n");
@@ -259,6 +294,8 @@ public class NativeConfigurationRenderer {
             + "# 协议：" + (server.getProtocol() == StreamProtocol.UDP ? "UDP" : "TCP") + "。\n"
             + "server {\n"
             + "    listen " + server.getListenPort() + (server.getProtocol() == StreamProtocol.UDP ? " udp" : "") + ";\n"
+            + "    # 在读取 TCP/UDP 会话数据前校验本服务绑定的 IP 黑白名单。\n"
+            + "    preread_by_lua_block { require(\"stream_runtime\").enforce() }\n"
             + "    proxy_pass " + upstream.getName() + ";\n"
             + "    access_log " + directivePath(server.getAccessLog()) + " openresty_plus_stream;\n"
             + "    error_log " + directivePath(server.getErrorLog()) + " warn;\n"
