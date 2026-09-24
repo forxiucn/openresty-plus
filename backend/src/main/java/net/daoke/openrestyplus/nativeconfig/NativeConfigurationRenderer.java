@@ -257,7 +257,7 @@ public class NativeConfigurationRenderer {
     }
 
     private static String httpBlockDirectives(net.daoke.openrestyplus.httpconfig.HttpConfiguration value) {
-        if (value == null) return "    sendfile on;\n    tcp_nopush on;\n    tcp_nodelay on;\n    keepalive_timeout 65s;\n    client_max_body_size 10m;\n    client_header_buffer_size 1k;\n    large_client_header_buffers 4 8k;\n";
+        if (value == null) return "    sendfile on;\n    tcp_nopush on;\n    tcp_nodelay on;\n    keepalive_timeout 65s;\n    client_max_body_size 10m;\n    client_header_buffer_size 1k;\n    large_client_header_buffers 4 8k;\n    server_names_hash_bucket_size 512;\n    gzip on;\n    gzip_min_length 1k;\n    gzip_comp_level 2;\n";
         return "    # 基础与性能、请求处理与客户端限制：由 HTTP 配置页面维护。\n"
             + "    sendfile " + (value.isSendfileEnabled() ? "on" : "off") + ";\n"
             + "    tcp_nopush " + (value.isTcpNopushEnabled() ? "on" : "off") + ";\n"
@@ -265,7 +265,11 @@ public class NativeConfigurationRenderer {
             + "    keepalive_timeout " + value.getKeepaliveTimeoutSeconds() + "s;\n"
             + "    client_max_body_size " + value.getClientMaxBodySize() + ";\n"
             + "    client_header_buffer_size " + value.getClientHeaderBufferSize() + ";\n"
-            + "    large_client_header_buffers " + value.getLargeClientHeaderBuffers() + ";\n";
+            + "    large_client_header_buffers " + value.getLargeClientHeaderBuffers() + ";\n"
+            + "    server_names_hash_bucket_size " + value.getServerNamesHashBucketSize() + ";\n"
+            + "    gzip " + (value.isGzipEnabled() ? "on" : "off") + ";\n"
+            + "    gzip_min_length " + value.getGzipMinLength() + ";\n"
+            + "    gzip_comp_level " + value.getGzipCompLevel() + ";\n";
     }
 
     private String httpUpstream(HttpUpstream upstream, List<HttpUpstreamTarget> targets, Instant now) {
