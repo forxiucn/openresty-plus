@@ -4,12 +4,14 @@ import {
   Alert as AAlert,
   Button as AButton,
   Card as ACard,
+  Checkbox as ACheckbox,
   Drawer as ADrawer,
   Empty as AEmpty,
   Form as AForm,
   FormItem as AFormItem,
   Input as AInput,
   InputNumber as AInputNumber,
+  Popconfirm as APopconfirm,
   Select as ASelect,
   Table as ATable,
   Tabs as ATabs,
@@ -19,10 +21,10 @@ import {
 } from 'ant-design-vue';
 
 type Center = { id: string; code: string; name: string };
-type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; backup: boolean; enabled: boolean };
+type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
 type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
-type HttpUpstream = { id: string; name: string; keepaliveConnections: number; healthCheckEnabled: boolean; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; targets: HttpTarget[] };
-type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number };
+type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; targets: HttpTarget[] };
+type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number };
 
 const centers = ref<Center[]>([]);
 const selectedCenterId = ref<string>();
@@ -35,13 +37,13 @@ const editingId = ref<string>();
 const targetDrawerOpen = ref(false);
 const selectedHttpUpstream = ref<HttpUpstream>();
 const editingTargetId = ref<string>();
-const freshTarget = () => ({ targetHost: '', targetPort: 8080, weight: 1, maxFails: 3, failTimeoutSeconds: 10, backup: false, enabled: true });
+const freshTarget = () => ({ targetHost: '', targetPort: 8080, weight: 1, maxFails: 3, failTimeoutSeconds: 10, resolveEnabled: false, backup: false, enabled: true });
 const targetForm = ref(freshTarget());
 const healthResults = ref<HealthResult[]>([]);
 const healthChecking = ref(false);
 
-const freshHttp = () => ({ keepaliveConnections: 32, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
-const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306 });
+const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
+const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64 });
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
 const currentList = computed(() => activeProtocol.value === 'http' ? httpUpstreams.value : streamUpstreams.value);
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
@@ -111,10 +113,10 @@ function openDrawer(value?: HttpUpstream | StreamUpstream) {
   editingId.value = value?.id;
   if (activeProtocol.value === 'http') {
     const item = value as HttpUpstream | undefined;
-    form.value = item ? { keepaliveConnections: item.keepaliveConnections, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus } : freshHttp();
+    form.value = item ? { keepaliveConnections: item.keepaliveConnections, zoneSizeKilobytes: item.zoneSizeKilobytes, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus } : freshHttp();
   } else {
     const item = value as StreamUpstream | undefined;
-    form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort } : freshStream();
+    form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort, resolveEnabled: item.resolveEnabled, zoneSizeKilobytes: item.zoneSizeKilobytes } : freshStream();
   }
   drawerOpen.value = true;
 }
@@ -274,6 +276,9 @@ onMounted(load);
           <a-form-item label="长连接保留数" extra="Nginx 与后端服务之间长期保留的最大空闲连接数。" required>
             <a-input-number v-model:value="form.keepaliveConnections" class="w-full" :max="10000" :min="1" />
           </a-form-item>
+          <a-form-item label="动态解析共享内存（KB）" extra="任一后端实例启用 resolve 时自动生成 upstream zone，建议不小于 64KB。" required>
+            <a-input-number v-model:value="form.zoneSizeKilobytes" class="w-full" :max="65536" :min="8" />
+          </a-form-item>
           <a-form-item label="主动健康检查">
             <a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox>
           </a-form-item>
@@ -295,6 +300,12 @@ onMounted(load);
           <a-form-item label="目标端口" required>
             <a-input-number v-model:value="form.targetPort" class="w-full" :max="65535" :min="1" />
           </a-form-item>
+          <a-form-item label="动态域名解析" extra="开启后生成 server ... resolve，并自动为 Upstream 定义共享内存区；DNS 地址和缓存时间在 DNS Resolver 菜单配置。">
+            <a-checkbox v-model:checked="form.resolveEnabled">启用 resolve 动态解析</a-checkbox>
+          </a-form-item>
+          <a-form-item v-if="form.resolveEnabled" label="共享内存（KB）" required>
+            <a-input-number v-model:value="form.zoneSizeKilobytes" class="w-full" :max="65536" :min="8" />
+          </a-form-item>
         </template>
       </a-form>
       <template #footer>
@@ -311,13 +322,13 @@ onMounted(load);
       <a-table class="mb-5" :columns="targetColumns" :data-source="selectedHttpUpstream?.targets || []" :pagination="false" row-key="id" size="small">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'health'">{{ record.maxFails }} 次失败 / {{ record.failTimeoutSeconds }} 秒</template>
-          <template v-else-if="column.key === 'status'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag><a-tag v-if="record.backup" color="orange">备用</a-tag></template>
+          <template v-else-if="column.key === 'status'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag><a-tag v-if="record.resolveEnabled" color="blue">动态解析（resolve）</a-tag><a-tag v-if="record.backup" color="orange">备用</a-tag></template>
           <template v-else-if="column.key === 'action'"><a-button type="link" @click="editTarget(record)">编辑</a-button><a-popconfirm title="确认删除该后端实例？" @confirm="removeTarget(record)"><a-button danger type="link">删除</a-button></a-popconfirm></template>
         </template>
       </a-table>
       <a-empty v-if="!(selectedHttpUpstream?.targets?.length)" class="mb-5" description="尚未配置后端实例" />
       <div class="mb-3 flex items-center justify-between"><span class="text-base font-medium">{{ editingTargetId ? '编辑后端实例' : '新增后端实例' }}</span><a-button type="link" @click="addTarget">清空并新增</a-button></div>
-      <a-form layout="vertical"><a-form-item label="后端地址" required><a-input v-model:value="targetForm.targetHost" placeholder="如 10.0.0.10 或 api.internal" /></a-form-item><div class="grid grid-cols-2 gap-4"><a-form-item label="后端端口" required><a-input-number v-model:value="targetForm.targetPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="权重"><a-input-number v-model:value="targetForm.weight" class="w-full" :min="1" :max="1000" /></a-form-item><a-form-item label="最大失败次数"><a-input-number v-model:value="targetForm.maxFails" class="w-full" :min="0" :max="100" /></a-form-item><a-form-item label="失败判定时间（秒）"><a-input-number v-model:value="targetForm.failTimeoutSeconds" class="w-full" :min="1" :max="3600" /></a-form-item></div><a-form-item><a-checkbox v-model:checked="targetForm.backup">作为备用实例</a-checkbox><a-checkbox v-model:checked="targetForm.enabled" class="ml-4">启用实例</a-checkbox></a-form-item></a-form>
+      <a-form layout="vertical"><a-form-item label="后端地址" required><a-input v-model:value="targetForm.targetHost" placeholder="如 10.0.0.10 或 api.internal" /></a-form-item><div class="grid grid-cols-2 gap-4"><a-form-item label="后端端口" required><a-input-number v-model:value="targetForm.targetPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="权重"><a-input-number v-model:value="targetForm.weight" class="w-full" :min="1" :max="1000" /></a-form-item><a-form-item label="最大失败次数"><a-input-number v-model:value="targetForm.maxFails" class="w-full" :min="0" :max="100" /></a-form-item><a-form-item label="失败判定时间（秒）"><a-input-number v-model:value="targetForm.failTimeoutSeconds" class="w-full" :min="1" :max="3600" /></a-form-item></div><a-form-item extra="开启后生成 server 域名:端口 resolve；所属 Upstream 会自动生成 zone 共享内存区。"><a-checkbox v-model:checked="targetForm.resolveEnabled">启用 DNS 动态解析（resolve）</a-checkbox><a-checkbox v-model:checked="targetForm.backup" class="ml-4">作为备用实例</a-checkbox><a-checkbox v-model:checked="targetForm.enabled" class="ml-4">启用实例</a-checkbox></a-form-item></a-form>
       <template #footer><div class="flex justify-end gap-2"><a-popconfirm v-if="editingTargetId" title="确认删除当前后端实例？" @confirm="removeCurrentTarget"><a-button danger>删除当前项</a-button></a-popconfirm><a-button @click="targetDrawerOpen=false">关闭</a-button><a-button type="primary" @click="saveTarget">{{ editingTargetId ? '保存修改' : '添加实例' }}</a-button></div></template>
     </a-drawer>
   </div>

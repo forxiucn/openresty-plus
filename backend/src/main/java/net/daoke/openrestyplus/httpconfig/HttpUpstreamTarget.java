@@ -15,10 +15,11 @@ public class HttpUpstreamTarget {
     @Column(nullable = false) private int weight;
     @Column(name = "max_fails", nullable = false) private int maxFails;
     @Column(name = "fail_timeout_seconds", nullable = false) private int failTimeoutSeconds;
+    @Column(name = "resolve_enabled", nullable = false) private boolean resolveEnabled;
     @Column(nullable = false) private boolean backup;
     @Column(nullable = false) private boolean enabled;
     protected HttpUpstreamTarget() { }
-    public HttpUpstreamTarget(UUID upstreamId, String targetHost, int targetPort, int weight, int maxFails, int failTimeoutSeconds, boolean backup, boolean enabled) { this.upstreamId=upstreamId; apply(targetHost,targetPort,weight,maxFails,failTimeoutSeconds,backup,enabled); }
-    public void apply(String host,int port,int weight,int maxFails,int timeout,boolean backup,boolean enabled) { this.targetHost=host;this.targetPort=port;this.weight=weight;this.maxFails=maxFails;this.failTimeoutSeconds=timeout;this.backup=backup;this.enabled=enabled; }
-    public UUID getId(){return id;} public UUID getUpstreamId(){return upstreamId;} public String getTargetHost(){return targetHost;} public int getTargetPort(){return targetPort;} public int getWeight(){return weight;} public int getMaxFails(){return maxFails;} public int getFailTimeoutSeconds(){return failTimeoutSeconds;} public boolean isBackup(){return backup;} public boolean isEnabled(){return enabled;}
+    public HttpUpstreamTarget(UUID upstreamId, String targetHost, int targetPort, int weight, int maxFails, int failTimeoutSeconds, boolean resolveEnabled, boolean backup, boolean enabled) { this.upstreamId=upstreamId; apply(targetHost,targetPort,weight,maxFails,failTimeoutSeconds,resolveEnabled,backup,enabled); }
+    public void apply(String host,int port,int weight,int maxFails,int timeout,boolean resolveEnabled,boolean backup,boolean enabled) { this.targetHost=host;this.targetPort=port;this.weight=weight;this.maxFails=maxFails;this.failTimeoutSeconds=timeout;this.resolveEnabled=resolveEnabled;this.backup=backup;this.enabled=enabled; }
+    public UUID getId(){return id;} public UUID getUpstreamId(){return upstreamId;} public String getTargetHost(){return targetHost;} public int getTargetPort(){return targetPort;} public int getWeight(){return weight;} public int getMaxFails(){return maxFails;} public int getFailTimeoutSeconds(){return failTimeoutSeconds;} public boolean isResolveEnabled(){return resolveEnabled;} public boolean isBackup(){return backup;} public boolean isEnabled(){return enabled;}
 }

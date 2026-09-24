@@ -14,9 +14,11 @@ public class StreamUpstream {
   @Column(nullable = false, length = 128) private String name;
   @Column(name = "target_host", nullable = false, length = 255) private String targetHost;
   @Column(name = "target_port", nullable = false) private int targetPort;
+  @Column(name = "resolve_enabled", nullable = false) private boolean resolveEnabled;
+  @Column(name = "zone_size_kilobytes", nullable = false) private int zoneSizeKilobytes=64;
   @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
   protected StreamUpstream() { }
-  public StreamUpstream(UUID centerId, String name, String targetHost, int targetPort) { this.centerId=centerId; apply(name,targetHost,targetPort); }
-  public void apply(String name, String targetHost, int targetPort) { this.name=name; this.targetHost=targetHost; this.targetPort=targetPort; }
-  public UUID getId(){return id;} public UUID getCenterId(){return centerId;} public String getName(){return name;} public String getTargetHost(){return targetHost;} public int getTargetPort(){return targetPort;}
+  public StreamUpstream(UUID centerId, String name, String targetHost, int targetPort, boolean resolveEnabled, int zoneSizeKilobytes) { this.centerId=centerId; apply(name,targetHost,targetPort,resolveEnabled,zoneSizeKilobytes); }
+  public void apply(String name, String targetHost, int targetPort, boolean resolveEnabled, int zoneSizeKilobytes) { this.name=name; this.targetHost=targetHost; this.targetPort=targetPort; this.resolveEnabled=resolveEnabled; this.zoneSizeKilobytes=zoneSizeKilobytes; }
+  public UUID getId(){return id;} public UUID getCenterId(){return centerId;} public String getName(){return name;} public String getTargetHost(){return targetHost;} public int getTargetPort(){return targetPort;} public boolean isResolveEnabled(){return resolveEnabled;} public int getZoneSizeKilobytes(){return zoneSizeKilobytes;}
 }

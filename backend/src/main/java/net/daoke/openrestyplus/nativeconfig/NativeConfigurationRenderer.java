@@ -248,9 +248,14 @@ public class NativeConfigurationRenderer {
     }
 
     private String httpUpstream(HttpUpstream upstream, List<HttpUpstreamTarget> targets, Instant now) {
+        boolean dynamicResolution = targets.stream().anyMatch(target -> target.isEnabled() && target.isResolveEnabled());
         return header("http.upstream." + upstream.getName() + ".conf", now)
             + "# HTTP 上游服务：" + upstream.getName() + "。\n"
             + "upstream " + upstream.getName() + " {\n"
+            + (dynamicResolution
+                ? "    # 启用动态域名解析时，Upstream 必须使用共享内存保存运行时后端地址。\n"
+                    + "    zone " + upstream.getName() + " " + upstream.getZoneSizeKilobytes() + "k;\n"
+                : "")
             + upstreamTargets(targets)
             + "    keepalive " + upstream.getKeepaliveConnections() + ";\n"
             + "}\n";
@@ -265,6 +270,7 @@ public class NativeConfigurationRenderer {
                 .append("    server ").append(hostPort(target.getTargetHost(), target.getTargetPort()))
                 .append(" weight=").append(target.getWeight()).append(" max_fails=").append(target.getMaxFails())
                 .append(" fail_timeout=").append(target.getFailTimeoutSeconds()).append('s');
+            if (target.isResolveEnabled()) value.append(" resolve");
             if (target.isBackup()) value.append(" backup");
             value.append(";\n");
         }
@@ -342,7 +348,12 @@ public class NativeConfigurationRenderer {
         return header("stream.upstream." + upstream.getName() + ".conf", now)
             + "# 四层上游服务：" + upstream.getName() + "。\n"
             + "upstream " + upstream.getName() + " {\n"
-            + "    server " + hostPort(upstream.getTargetHost(), upstream.getTargetPort()) + " max_fails=3 fail_timeout=10s;\n"
+            + (upstream.isResolveEnabled()
+                ? "    # 启用动态域名解析时，Upstream 必须使用共享内存保存运行时后端地址。\n"
+                    + "    zone " + upstream.getName() + " " + upstream.getZoneSizeKilobytes() + "k;\n"
+                : "")
+            + "    server " + hostPort(upstream.getTargetHost(), upstream.getTargetPort()) + " max_fails=3 fail_timeout=10s"
+            + (upstream.isResolveEnabled() ? " resolve" : "") + ";\n"
             + "}\n";
     }
 
