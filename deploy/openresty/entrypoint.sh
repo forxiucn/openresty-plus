@@ -3,7 +3,13 @@ set -eu
 
 control_socket=/run/openresty/control.sock
 control_bridge_port=${CONTROL_API_BRIDGE_PORT:-81}
+runtime_http_port=${RUNTIME_HTTP_PORT:-80}
 rm -f "$control_socket"
+
+# Host networking gives each local demo node its own non-conflicting bootstrap port.
+if [ "$runtime_http_port" != "80" ] && [ -f /etc/openresty/conf.d/health.conf ]; then
+  sed -i "s/listen 80;/listen ${runtime_http_port};/" /etc/openresty/conf.d/health.conf
+fi
 
 center_id=${RUNTIME_CENTER_ID:-}
 control_plane=${RUNTIME_CONTROL_PLANE_URL:-}
