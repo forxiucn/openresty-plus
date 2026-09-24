@@ -44,6 +44,8 @@ public class HttpLocation {
     @Column(name = "dynamic_dns_enabled", nullable = false) private boolean dynamicDnsEnabled;
     @Column(name = "dynamic_dns_host") private String dynamicDnsHost;
     @Column(name = "dynamic_dns_port") private Integer dynamicDnsPort;
+    @Column(name = "ip_policy_enabled", nullable = false) private boolean ipPolicyEnabled;
+    @Column(name = "api_policy_enabled", nullable = false) private boolean apiPolicyEnabled;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpLocation() { }
@@ -100,5 +102,11 @@ public class HttpLocation {
     public boolean isDynamicDnsEnabled() { return dynamicDnsEnabled; }
     public String getDynamicDnsHost() { return dynamicDnsHost; }
     public Integer getDynamicDnsPort() { return dynamicDnsPort; }
+    public boolean isIpPolicyEnabled() { return ipPolicyEnabled; }
+    public boolean isApiPolicyEnabled() { return apiPolicyEnabled; }
     public void applyDynamicDns(boolean enabled, String host, Integer port) { this.dynamicDnsEnabled=enabled; this.dynamicDnsHost=host; this.dynamicDnsPort=port; }
+    public void applyPolicySettings(boolean ipPolicyEnabled, boolean apiPolicyEnabled) {
+        this.ipPolicyEnabled = ipPolicyEnabled;
+        this.apiPolicyEnabled = apiPolicyEnabled;
+    }
 }

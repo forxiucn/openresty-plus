@@ -78,10 +78,9 @@ public class ApiPolicyController {
         int index = scoped.stream().map(ApiPolicy::getId).toList().indexOf(policyId);
         int next = index + offset;
         if (next >= 0 && next < scoped.size()) {
-            var other = scoped.get(next);
-            int currentPriority = policy.getPriority();
-            policy.changePriority(other.getPriority()); other.changePriority(currentPriority);
-            policies.saveAll(List.of(policy, other));
+            java.util.Collections.swap(scoped, index, next);
+            for (int order = 0; order < scoped.size(); order++) scoped.get(order).changePriority((order + 1) * 10);
+            policies.saveAll(scoped);
             audit.success(centerId, "API_POLICY_PRIORITY_CHANGED", "API_POLICY", policyId);
         }
         return policies.findByCenterIdOrderByPriorityAscIdAsc(centerId).stream().map(View::from).toList();

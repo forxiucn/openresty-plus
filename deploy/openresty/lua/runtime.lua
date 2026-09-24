@@ -137,7 +137,7 @@ local function current_target(content)
       location_id, best_length, selected_location = location.id, #prefix, location
     end
   end
-  return selected.server.id, location_id, selected_location
+  return selected.server.id, location_id, selected_location, selected.server
 end
 
 local function has_value(values, expected)
@@ -195,7 +195,7 @@ local function applies_to_http(policy, server_id, location_id)
   return false
 end
 
-local function enforce_ip_policies(content, server_id, location_id)
+local function enforce_ip_policies(content, server_id, location_id, server, location)
   local client_ip = ngx.var.remote_addr or ""
   local policies = {}
   for _, policy in ipairs(content.ipPolicies or {}) do policies[#policies + 1] = policy end
@@ -205,7 +205,9 @@ local function enforce_ip_policies(content, server_id, location_id)
     return tostring(left.id or "") < tostring(right.id or "")
   end)
   for _, policy in ipairs(policies) do
-    if policy.enabled and applies_to_http(policy, server_id, location_id) then
+    local target_enabled = (policy.scope == "HTTP_SERVER" and server.ipPolicyEnabled ~= false)
+        or (policy.scope == "HTTP_LOCATION" and location and location.ipPolicyEnabled ~= false)
+    if policy.enabled and target_enabled and applies_to_http(policy, server_id, location_id) then
       local matches = ip_matches(client_ip, policy.ipRules)
       if policy.mode == "BLACKLIST" and matches then return reject("ip-blacklist") end
       -- A matching whitelist is an explicit allow decision at this priority;
@@ -233,13 +235,14 @@ end
 function _M.enforce()
   local content = current_snapshot()
   if not content then return end -- no snapshot: fail open during bootstrap/outage
-  local server_id, location_id, location = current_target(content)
+  local server_id, location_id, location, server = current_target(content)
   if not server_id then return end
   if location and not request_matches_location(location) then
     return ngx.exit(ngx.HTTP_NOT_FOUND)
   end
-  enforce_ip_policies(content, server_id, location_id)
+  enforce_ip_policies(content, server_id, location_id, server, location)
   if not location_id then return end
+  if server.apiPolicyEnabled == false or location.apiPolicyEnabled == false then return end
   local policies = {}
   for _, policy in ipairs(content.apiPolicies or {}) do policies[#policies + 1] = policy end
   table.sort(policies, function(left, right)

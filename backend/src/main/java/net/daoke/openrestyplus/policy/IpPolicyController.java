@@ -98,10 +98,9 @@ public class IpPolicyController {
         int index = scoped.stream().map(IpPolicy::getId).toList().indexOf(policyId);
         int next = index + offset;
         if (next >= 0 && next < scoped.size()) {
-            var other = scoped.get(next);
-            int currentPriority = policy.getPriority();
-            policy.changePriority(other.getPriority()); other.changePriority(currentPriority);
-            policies.saveAll(List.of(policy, other));
+            java.util.Collections.swap(scoped, index, next);
+            for (int order = 0; order < scoped.size(); order++) scoped.get(order).changePriority((order + 1) * 10);
+            policies.saveAll(scoped);
             audit.success(centerId, "IP_POLICY_PRIORITY_CHANGED", "IP_POLICY", policyId);
         }
         return policies.findByCenterIdOrderByPriorityAscIdAsc(centerId).stream().map(View::from).toList();
@@ -111,6 +110,27 @@ public class IpPolicyController {
         if (rules == null || rules.isEmpty() || rules.stream().anyMatch(value -> value == null || value.isBlank())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ipRules must be a non-empty JSON array");
         }
+        if (rules.stream().anyMatch(value -> !isSupportedIpRule(value.trim()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "IP rule must be an IPv4 address, IPv4 CIDR, or exact IPv6 address; IPv6 CIDR is not supported");
+        }
+    }
+    private boolean isSupportedIpRule(String value) {
+        if (value.contains(":")) return !value.contains("/") && value.matches("[0-9A-Fa-f:.]+");
+        String[] parts = value.split("/", -1);
+        if (parts.length > 2 || !isIpv4(parts[0])) return false;
+        if (parts.length == 1) return true;
+        try { int prefix = Integer.parseInt(parts[1]); return prefix >= 0 && prefix <= 32; }
+        catch (NumberFormatException ignored) { return false; }
+    }
+    private boolean isIpv4(String value) {
+        String[] octets = value.split("\\.", -1);
+        if (octets.length != 4) return false;
+        for (String octet : octets) {
+            try { if (!octet.matches("\\d{1,3}") || Integer.parseInt(octet) > 255) return false; }
+            catch (NumberFormatException ignored) { return false; }
+        }
+        return true;
     }
     /** Ensures a policy can only be attached to a resource in the same center. */
     private void validateTarget(UUID centerId, IpPolicyScope scope, UUID targetResourceId) {

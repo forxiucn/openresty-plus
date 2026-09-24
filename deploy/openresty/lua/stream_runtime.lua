@@ -50,7 +50,7 @@ local function current_server(content)
   local protocol = (ngx.var.protocol or ""):upper()
   for _, server in ipairs(content.streamServers or {}) do
     if tonumber(server.listenPort) == port and (protocol == "" or server.protocol == protocol) then
-      return server.id
+      return server
     end
   end
   return nil
@@ -59,8 +59,9 @@ end
 function _M.enforce()
   local content = current_snapshot()
   if not content then return end -- 初始化或控制面不可用时沿用 fail-open 约定。
-  local server_id = current_server(content)
-  if not server_id then return end
+  local server = current_server(content)
+  if not server or server.ipPolicyEnabled == false then return end
+  local server_id = server.id
   local client_ip = ngx.var.remote_addr or ""
   local policies = {}
   for _, policy in ipairs(content.ipPolicies or {}) do
@@ -76,8 +77,13 @@ function _M.enforce()
   for _, policy in ipairs(policies) do
     if policy.enabled and policy.scope == "STREAM" and tostring(policy.targetResourceId) == tostring(server_id) then
       local matches = ip_matches(client_ip, policy.ipRules)
-      if (policy.mode == "BLACKLIST" and matches) or (policy.mode == "WHITELIST" and not matches) then
+      if policy.mode == "BLACKLIST" and matches then
         ngx.log(ngx.WARN, "四层 IP 策略拒绝连接: policy=", tostring(policy.id), ", client=", client_ip)
+        return ngx.exit(ngx.ERROR)
+      end
+      if policy.mode == "WHITELIST" then
+        if matches then return "allow" end
+        ngx.log(ngx.WARN, "四层 IP 白名单拒绝连接: policy=", tostring(policy.id), ", client=", client_ip)
         return ngx.exit(ngx.ERROR)
       end
     end

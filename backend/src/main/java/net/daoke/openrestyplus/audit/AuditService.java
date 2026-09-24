@@ -1,8 +1,10 @@
 package net.daoke.openrestyplus.audit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.UUID;
 
 /** Records successful control-plane mutations without copying request payloads or credentials. */
@@ -19,15 +21,21 @@ public class AuditService {
     }
 
     public void success(UUID centerId, String action, String resourceType, UUID resourceId) {
-        record(centerId, action, resourceType, resourceId, "SUCCESS");
+        record(centerId, action, resourceType, resourceId, "SUCCESS", Map.of());
+    }
+
+    public void success(UUID centerId, String action, String resourceType, UUID resourceId,
+                        Map<String, ?> changeDetails) {
+        record(centerId, action, resourceType, resourceId, "SUCCESS", changeDetails);
     }
 
     public void failure(UUID centerId, String action, String resourceType, UUID resourceId) {
-        record(centerId, action, resourceType, resourceId, "FAILED");
+        record(centerId, action, resourceType, resourceId, "FAILED", Map.of());
     }
 
-    private void record(UUID centerId, String action, String resourceType, UUID resourceId, String result) {
-        var detail = objectMapper.createObjectNode();
+    private void record(UUID centerId, String action, String resourceType, UUID resourceId, String result,
+                        Map<String, ?> changeDetails) {
+        ObjectNode detail = objectMapper.valueToTree(changeDetails);
         if (centerId != null) {
             detail.put("centerId", centerId.toString());
         }

@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -129,6 +130,30 @@ public class HttpServerController {
         locations.delete(requireLocation(serverId, locationId));
         audit.success(centerId, "HTTP_LOCATION_DELETED", "HTTP_LOCATION", locationId);
     }
+    @PutMapping("/{serverId}/policy-settings")
+    public ServerView serverPolicySettings(@PathVariable UUID centerId, @PathVariable UUID serverId,
+                                           @Valid @RequestBody ServerPolicySettingsRequest request) {
+        var server = requireServerEntity(centerId, serverId);
+        var before = Map.of("ipPolicyEnabled", server.isIpPolicyEnabled(), "apiPolicyEnabled", server.isApiPolicyEnabled());
+        server.applyPolicySettings(request.ipPolicyEnabled(), request.apiPolicyEnabled());
+        var saved = servers.save(server);
+        audit.success(centerId, "HTTP_SERVER_POLICY_SETTINGS_UPDATED", "HTTP_SERVER", serverId,
+            Map.of("before", before, "after", Map.of("ipPolicyEnabled", request.ipPolicyEnabled(), "apiPolicyEnabled", request.apiPolicyEnabled())));
+        return ServerView.from(saved);
+    }
+    @PutMapping("/{serverId}/locations/{locationId}/policy-settings")
+    public LocationView locationPolicySettings(@PathVariable UUID centerId, @PathVariable UUID serverId,
+                                               @PathVariable UUID locationId,
+                                               @Valid @RequestBody LocationPolicySettingsRequest request) {
+        requireServer(centerId, serverId);
+        var location = requireLocation(serverId, locationId);
+        var before = Map.of("ipPolicyEnabled", location.isIpPolicyEnabled(), "apiPolicyEnabled", location.isApiPolicyEnabled());
+        location.applyPolicySettings(request.ipPolicyEnabled(), request.apiPolicyEnabled());
+        var saved = locations.save(location);
+        audit.success(centerId, "HTTP_LOCATION_POLICY_SETTINGS_UPDATED", "HTTP_LOCATION", locationId,
+            Map.of("before", before, "after", Map.of("ipPolicyEnabled", request.ipPolicyEnabled(), "apiPolicyEnabled", request.apiPolicyEnabled())));
+        return LocationView.from(saved);
+    }
     @PutMapping("/{serverId}/locations/{locationId}/dynamic-dns")
     public LocationView dynamicDns(@PathVariable UUID centerId,@PathVariable UUID serverId,@PathVariable UUID locationId,@Valid @RequestBody DynamicDnsRequest request){
         requireServer(centerId,serverId); var location=requireLocation(serverId,locationId); if(request.enabled()&&(request.host()==null||request.host().isBlank()||request.port()==null))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"启用动态 DNS 时必须提供域名和端口"); location.applyDynamicDns(request.enabled(),request.host(),request.port()); return LocationView.from(locations.save(location));
@@ -217,10 +242,11 @@ public class HttpServerController {
     }
 
     public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
-                             String accessLog, String errorLog) {
+                             String accessLog, String errorLog, boolean ipPolicyEnabled, boolean apiPolicyEnabled) {
         static ServerView from(HttpServer server) {
             return new ServerView(server.getId(), server.getDomain(), server.getListenPort(), server.isSslEnabled(),
-                server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog());
+                server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog(),
+                server.isIpPolicyEnabled(), server.isApiPolicyEnabled());
         }
     }
 
@@ -229,7 +255,8 @@ public class HttpServerController {
                                UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs,
                                int proxySendTimeoutMs, boolean rateLimitEnabled, int ratePerSecond,
                                int rateLimitBurst, boolean rateLimitNodelay, boolean dynamicDnsEnabled,
-                               String dynamicDnsHost, Integer dynamicDnsPort) {
+                               String dynamicDnsHost, Integer dynamicDnsPort, boolean ipPolicyEnabled,
+                               boolean apiPolicyEnabled) {
         static LocationView from(HttpLocation location) {
             return new LocationView(location.getId(), location.getPath(), location.getMethods(),
                 location.getContentTypes(), location.getHeaderLengthMin(), location.getHeaderLengthMax(),
@@ -237,8 +264,11 @@ public class HttpServerController {
                 location.getProxyConnectTimeoutMs(), location.getProxyReadTimeoutMs(),
                 location.getProxySendTimeoutMs(), location.isRateLimitEnabled(), location.getRatePerSecond(),
                 location.getRateLimitBurst(), location.isRateLimitNodelay(), location.isDynamicDnsEnabled(),
-                location.getDynamicDnsHost(), location.getDynamicDnsPort());
+                location.getDynamicDnsHost(), location.getDynamicDnsPort(), location.isIpPolicyEnabled(),
+                location.isApiPolicyEnabled());
         }
     }
     public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
+    public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
+    public record LocationPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
 }

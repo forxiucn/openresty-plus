@@ -28,6 +28,8 @@ public class HttpServer {
     @Column(name = "upstream_id") @JdbcTypeCode(Types.BINARY) private UUID upstreamId;
     @Column(name = "access_log", nullable = false, length = 512) private String accessLog;
     @Column(name = "error_log", nullable = false, length = 512) private String errorLog;
+    @Column(name = "ip_policy_enabled", nullable = false) private boolean ipPolicyEnabled;
+    @Column(name = "api_policy_enabled", nullable = false) private boolean apiPolicyEnabled;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpServer() { }
@@ -57,4 +59,10 @@ public class HttpServer {
     public UUID getUpstreamId() { return upstreamId; }
     public String getAccessLog() { return accessLog; }
     public String getErrorLog() { return errorLog; }
+    public boolean isIpPolicyEnabled() { return ipPolicyEnabled; }
+    public boolean isApiPolicyEnabled() { return apiPolicyEnabled; }
+    public void applyPolicySettings(boolean ipPolicyEnabled, boolean apiPolicyEnabled) {
+        this.ipPolicyEnabled = ipPolicyEnabled;
+        this.apiPolicyEnabled = apiPolicyEnabled;
+    }
 }
