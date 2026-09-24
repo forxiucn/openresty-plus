@@ -25,7 +25,7 @@ import { type PageResult, useServerPagination } from '#/utils/server-pagination'
 type Center = { id: string; code: string; name: string };
 type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
 type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
-type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; targets: HttpTarget[] };
+type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckType: 'TCP'|'HTTP'|'PING'; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; healthCheckHost?: string; healthCheckRequestHeaders: string[]; healthCheckRise: number; healthCheckFall: number; targets: HttpTarget[] };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number };
 type Resolver = { id: string; scope: 'HTTP' | 'STREAM'; resolverAddresses: string[]; validSeconds: number; timeoutMilliseconds: number; ipv6Enabled: boolean; enabled: boolean };
 
@@ -52,7 +52,7 @@ const freshResolver = () => ({ resolverAddresses: ['127.0.0.11'], validSeconds: 
 const resolverForm = ref(freshResolver());
 const currentResolver = computed(() => resolvers.value.find((item) => item.scope === (activeProtocol.value === 'http' ? 'HTTP' : 'STREAM')));
 
-const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
+const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckType: 'HTTP' as const, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200, healthCheckHost: '', healthCheckRequestHeaders: [] as string[], healthCheckRise: 2, healthCheckFall: 3 });
 const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64 });
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
 const currentList = computed(() => upstreamRows.value);
@@ -141,7 +141,7 @@ function openDrawer(value?: HttpUpstream | StreamUpstream) {
   editingId.value = value?.id;
   if (activeProtocol.value === 'http') {
     const item = value as HttpUpstream | undefined;
-    form.value = item ? { keepaliveConnections: item.keepaliveConnections, zoneSizeKilobytes: item.zoneSizeKilobytes, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus } : freshHttp();
+    form.value = item ? { keepaliveConnections: item.keepaliveConnections, zoneSizeKilobytes: item.zoneSizeKilobytes, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckType: item.healthCheckType || 'HTTP', healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus, healthCheckHost: item.healthCheckHost || '', healthCheckRequestHeaders: item.healthCheckRequestHeaders || [], healthCheckRise: item.healthCheckRise || 2, healthCheckFall: item.healthCheckFall || 3 } : freshHttp();
   } else {
     const item = value as StreamUpstream | undefined;
     form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort, resolveEnabled: item.resolveEnabled, zoneSizeKilobytes: item.zoneSizeKilobytes } : freshStream();
@@ -423,13 +423,18 @@ onMounted(load);
             <a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox>
           </a-form-item>
           <template v-if="form.healthCheckEnabled">
-            <a-form-item label="健康检查路径" extra="控制面调用每个 HTTP 后端实例时使用的路径。">
+            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测，不依赖系统 ICMP 权限。"><a-select v-model:value="form.healthCheckType" :options="[{value:'TCP',label:'TCP（TCP）'},{value:'HTTP',label:'HTTP（HTTP）'},{value:'PING',label:'PING（PING）'}]" /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="健康检查路径" extra="控制面调用每个 HTTP 后端实例时使用的路径。">
               <a-input v-model:value="form.healthCheckPath" placeholder="/health" />
             </a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="HTTP Host 覆盖"><a-input v-model:value="form.healthCheckHost" placeholder="可选，例如 api.internal" /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="自定义请求头"><a-select v-model:value="form.healthCheckRequestHeaders" mode="tags" :token-separators="[',']" placeholder="例如 Authorization: Bearer token" /></a-form-item>
             <div class="grid grid-cols-3 gap-4">
               <a-form-item label="间隔（秒）"><a-input-number v-model:value="form.healthCheckIntervalSeconds" class="w-full" :min="1" :max="3600" /></a-form-item>
               <a-form-item label="超时（毫秒）"><a-input-number v-model:value="form.healthCheckTimeoutMilliseconds" class="w-full" :min="50" :max="60000" /></a-form-item>
-              <a-form-item label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item>
+              <a-form-item v-if="form.healthCheckType === 'HTTP'" label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item>
+              <a-form-item label="连续成功次数"><a-input-number v-model:value="form.healthCheckRise" class="w-full" :min="1" :max="100" /></a-form-item>
+              <a-form-item label="连续失败次数"><a-input-number v-model:value="form.healthCheckFall" class="w-full" :min="1" :max="100" /></a-form-item>
             </div>
           </template>
         </template>
