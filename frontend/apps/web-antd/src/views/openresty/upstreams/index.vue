@@ -26,7 +26,7 @@ type Center = { id: string; code: string; name: string };
 type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
 type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
 type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckType: 'TCP'|'HTTP'|'PING'; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; healthCheckHost?: string; healthCheckRequestHeaders: string[]; healthCheckRise: number; healthCheckFall: number; targets: HttpTarget[] };
-type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number };
+type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number; healthCheckEnabled:boolean; healthCheckType:'TCP'|'HTTP'|'PING'; healthCheckPath:string; healthCheckHost?:string; healthCheckIntervalSeconds:number; healthCheckTimeoutMilliseconds:number; healthCheckExpectedStatus:number; healthCheckRequestHeaders:string[]; healthCheckRise:number; healthCheckFall:number };
 type Resolver = { id: string; scope: 'HTTP' | 'STREAM'; resolverAddresses: string[]; validSeconds: number; timeoutMilliseconds: number; ipv6Enabled: boolean; enabled: boolean };
 
 const centers = ref<Center[]>([]);
@@ -53,7 +53,7 @@ const resolverForm = ref(freshResolver());
 const currentResolver = computed(() => resolvers.value.find((item) => item.scope === (activeProtocol.value === 'http' ? 'HTTP' : 'STREAM')));
 
 const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckType: 'HTTP' as const, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200, healthCheckHost: '', healthCheckRequestHeaders: [] as string[], healthCheckRise: 2, healthCheckFall: 3 });
-const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64 });
+const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64, healthCheckEnabled:false, healthCheckType:'TCP' as const, healthCheckPath:'/health', healthCheckHost:'', healthCheckIntervalSeconds:10, healthCheckTimeoutMilliseconds:1000, healthCheckExpectedStatus:200, healthCheckRequestHeaders:[] as string[], healthCheckRise:2, healthCheckFall:3 });
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
 const currentList = computed(() => upstreamRows.value);
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
@@ -144,7 +144,7 @@ function openDrawer(value?: HttpUpstream | StreamUpstream) {
     form.value = item ? { keepaliveConnections: item.keepaliveConnections, zoneSizeKilobytes: item.zoneSizeKilobytes, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckType: item.healthCheckType || 'HTTP', healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus, healthCheckHost: item.healthCheckHost || '', healthCheckRequestHeaders: item.healthCheckRequestHeaders || [], healthCheckRise: item.healthCheckRise || 2, healthCheckFall: item.healthCheckFall || 3 } : freshHttp();
   } else {
     const item = value as StreamUpstream | undefined;
-    form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort, resolveEnabled: item.resolveEnabled, zoneSizeKilobytes: item.zoneSizeKilobytes } : freshStream();
+    form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort, resolveEnabled: item.resolveEnabled, zoneSizeKilobytes: item.zoneSizeKilobytes, healthCheckEnabled:item.healthCheckEnabled, healthCheckType:item.healthCheckType||'TCP', healthCheckPath:item.healthCheckPath||'/health', healthCheckHost:item.healthCheckHost||'', healthCheckIntervalSeconds:item.healthCheckIntervalSeconds||10, healthCheckTimeoutMilliseconds:item.healthCheckTimeoutMilliseconds||1000, healthCheckExpectedStatus:item.healthCheckExpectedStatus||200, healthCheckRequestHeaders:item.healthCheckRequestHeaders||[], healthCheckRise:item.healthCheckRise||2, healthCheckFall:item.healthCheckFall||3 } : freshStream();
   }
   drawerOpen.value = true;
 }
@@ -451,6 +451,13 @@ onMounted(load);
           <a-form-item v-if="form.resolveEnabled" label="共享内存（KB）" required>
             <a-input-number v-model:value="form.zoneSizeKilobytes" class="w-full" :max="65536" :min="8" />
           </a-form-item>
+          <a-form-item label="主动健康检查"><a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox></a-form-item>
+          <template v-if="form.healthCheckEnabled">
+            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测。"><a-select v-model:value="form.healthCheckType" :options="[{value:'TCP',label:'TCP（TCP）'},{value:'HTTP',label:'HTTP（HTTP）'},{value:'PING',label:'PING（PING）'}]" /></a-form-item>
+            <a-form-item v-if="form.healthCheckType==='HTTP'" label="检查路径"><a-input v-model:value="form.healthCheckPath" placeholder="/health" /></a-form-item>
+            <a-form-item v-if="form.healthCheckType==='HTTP'" label="HTTP Host / 自定义请求头"><a-input v-model:value="form.healthCheckHost" placeholder="Host（可选）" /><a-select v-model:value="form.healthCheckRequestHeaders" mode="tags" :token-separators="[',']" placeholder="请求头：Header: value" /></a-form-item>
+            <div class="grid grid-cols-3 gap-4"><a-form-item label="间隔（秒）"><a-input-number v-model:value="form.healthCheckIntervalSeconds" class="w-full" :min="1" /></a-form-item><a-form-item label="超时（毫秒）"><a-input-number v-model:value="form.healthCheckTimeoutMilliseconds" class="w-full" :min="50" /></a-form-item><a-form-item v-if="form.healthCheckType==='HTTP'" label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item><a-form-item label="连续成功"><a-input-number v-model:value="form.healthCheckRise" class="w-full" :min="1" /></a-form-item><a-form-item label="连续失败"><a-input-number v-model:value="form.healthCheckFall" class="w-full" :min="1" /></a-form-item></div>
+          </template>
         </template>
       </a-form>
       <template #footer>

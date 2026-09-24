@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.List;
 import net.daoke.openrestyplus.health.HealthCheckType;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity @Table(name = "http_upstream")
 public class HttpUpstream {
@@ -22,7 +23,7 @@ public class HttpUpstream {
   @Column(name="health_check_timeout_milliseconds", nullable=false) private int healthCheckTimeoutMilliseconds=1000;
   @Column(name="health_check_expected_status", nullable=false) private int healthCheckExpectedStatus=200;
   @Column(name="health_check_host") private String healthCheckHost;
-  @JdbcTypeCode(Types.JSON) @Column(name="health_check_request_headers", nullable=false) private List<String> healthCheckRequestHeaders=List.of();
+  @JdbcTypeCode(SqlTypes.JSON) @Column(name="health_check_request_headers", nullable=false) private List<String> healthCheckRequestHeaders=List.of();
   @Column(name="health_check_rise", nullable=false) private int healthCheckRise=2;
   @Column(name="health_check_fall", nullable=false) private int healthCheckFall=3;
   @Column(name="created_at", nullable=false) private Instant createdAt=Instant.now();

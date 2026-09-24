@@ -47,11 +47,10 @@ onMounted(()=>{loadCenters();loadDictionaries()});
       <a-alert class="mt-4" type="info" show-icon :message="`配置层级：${selectedCenter?.name || '未选择中心'} → ${selectedNode ? `${selectedNode.name}（${selectedNode.host}:${selectedNode.servicePort}）` : '全部实例'} → HTTP`" description="中心级 HTTP 配置会渲染并发布到该中心所有启用的 OpenResty 实例；实例选择用于定位当前管理与发布上下文。" />
     </a-card>
 
-    <metric-grid :metrics="reportMetrics" />
-    <a-tabs v-if="hasCenter" v-model:active-key="activeTab" class="mt-5">
+    <metric-grid class="compact-metrics" :metrics="reportMetrics" />
+    <a-tabs v-if="hasCenter" v-model:active-key="activeTab" class="http-level-tabs mt-4">
       <a-tab-pane key="upstream" tab="Upstream 配置">
-    <a-row :gutter="[24,24]">
-      <a-col :lg="10" :xs="24">
+    <div>
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的 Upstream` : 'HTTP Upstream'">
           <template #extra><a-button type="primary" :disabled="!hasCenter" @click="openUpstream()">新增 Upstream</a-button></template>
           <a-table :columns="upstreamColumns" :data-source="upstreamRows" :loading="loading" :pagination="upstreamPager.table.value" @change="(p:any)=>changeHttpPage('upstream',p)" row-key="id" size="small" :locale="{ emptyText: hasCenter ? '还没有 Upstream，请先新增一个服务后端。' : '请先选择配置中心。' }">
@@ -60,8 +59,7 @@ onMounted(()=>{loadCenters();loadDictionaries()});
             </template>
           </a-table>
         </a-card>
-      </a-col>
-    </a-row>
+    </div>
       </a-tab-pane>
       <a-tab-pane key="server" tab="Server 配置">
       <div>
@@ -122,4 +120,10 @@ onMounted(()=>{loadCenters();loadDictionaries()});
 <style scoped>
 .selection-hint { color: var(--ant-color-text-description); font-size: 13px; line-height: 32px; }
 :deep(.selected-server-row > td) { background: var(--ant-color-primary-bg); }
+:deep(.compact-metrics .ops-metric-grid) { gap: 8px; margin: 12px 0 0; }
+:deep(.compact-metrics .ops-metric) { min-height: 66px; padding: 10px 14px; }
+:deep(.compact-metrics .ops-metric__value) { font-size: 22px; line-height: 26px; }
+:deep(.compact-metrics .ops-metric__hint) { display: none; }
+:deep(.http-level-tabs .ant-tabs-nav) { margin-bottom: 12px; padding: 0 12px; border-radius: 6px; background: var(--ant-color-bg-container); }
+:deep(.ant-table-wrapper) { width: 100%; }
 </style>

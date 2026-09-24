@@ -2,7 +2,8 @@
 .ops-page > * + * { margin-top: 24px; }
 .ops-page .ant-card { border-radius: 10px; }
 .ops-page .ant-card-body { padding: 20px; }
-.ops-page .ant-table-wrapper { margin-top: 4px; }
+.ops-page .ant-table-wrapper { width: 100%; margin-top: 4px; }
+.ops-page .ant-table { width: 100%; }
 .ops-page .ant-space { row-gap: 8px !important; }
 .ops-section-grid { display: grid; gap: 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ops-metric-grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--metric-columns), minmax(0, 1fr)); }
@@ -21,4 +22,3 @@
 .ops-subtle-panel { border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 16px; background: hsl(var(--muted) / .25); }
 @media (max-width: 1100px) { .ops-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
 @media (max-width: 768px) { .ops-page { padding: 16px; } .ops-page > * + * { margin-top: 16px; } .ops-section-grid, .ops-metric-grid { grid-template-columns: 1fr !important; } }
-
