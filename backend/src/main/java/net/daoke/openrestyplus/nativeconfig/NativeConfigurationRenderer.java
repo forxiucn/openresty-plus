@@ -228,6 +228,7 @@ public class NativeConfigurationRenderer {
             + "events { worker_connections 1024; }\n\n"
             + "http {\n"
             + "    # 七层 HTTP 配置：上游、虚拟主机和接口配置分别独立存放。\n"
+            + httpBlockDirectives(httpConfiguration)
             + rootDirective(httpConfiguration == null ? null : httpConfiguration.getRootPath(), "    ")
             + versionDirective(httpConfiguration == null || httpConfiguration.isHideVersion(), "    ")
             + responseHeaders(httpConfiguration == null ? List.of() : httpConfiguration.getResponseHeaders(), "    ")
@@ -253,6 +254,18 @@ public class NativeConfigurationRenderer {
             + "    include " + nodeRoot + "/stream/upstream/*.conf;\n"
             + "    include " + nodeRoot + "/stream/server/*.conf;\n"
             + "}\n";
+    }
+
+    private static String httpBlockDirectives(net.daoke.openrestyplus.httpconfig.HttpConfiguration value) {
+        if (value == null) return "    sendfile on;\n    tcp_nopush on;\n    tcp_nodelay on;\n    keepalive_timeout 65s;\n    client_max_body_size 10m;\n    client_header_buffer_size 1k;\n    large_client_header_buffers 4 8k;\n";
+        return "    # 基础与性能、请求处理与客户端限制：由 HTTP 配置页面维护。\n"
+            + "    sendfile " + (value.isSendfileEnabled() ? "on" : "off") + ";\n"
+            + "    tcp_nopush " + (value.isTcpNopushEnabled() ? "on" : "off") + ";\n"
+            + "    tcp_nodelay " + (value.isTcpNodelayEnabled() ? "on" : "off") + ";\n"
+            + "    keepalive_timeout " + value.getKeepaliveTimeoutSeconds() + "s;\n"
+            + "    client_max_body_size " + value.getClientMaxBodySize() + ";\n"
+            + "    client_header_buffer_size " + value.getClientHeaderBufferSize() + ";\n"
+            + "    large_client_header_buffers " + value.getLargeClientHeaderBuffers() + ";\n";
     }
 
     private String httpUpstream(HttpUpstream upstream, List<HttpUpstreamTarget> targets, Instant now) {
