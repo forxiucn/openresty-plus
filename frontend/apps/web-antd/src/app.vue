@@ -1,10 +1,11 @@
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, render } from 'vue';
 
 import { useAntdDesignTokens } from '@vben/hooks';
 import { preferences, usePreferences } from '@vben/preferences';
 
 import { App, ConfigProvider, theme } from 'ant-design-vue';
+import { QuestionCircleOutlined } from '@ant-design/icons-vue';
 
 import { antdLocale } from '#/locales';
 
@@ -63,6 +64,10 @@ function installHelpHints() {
     const message = alert.textContent?.replace(/\s+/g, ' ').trim();
     if (message) alert.dataset.help = message;
     alert.setAttribute('aria-label', message || '帮助说明');
+    const icon = document.createElement('span');
+    icon.className = 'ops-help-icon';
+    render(h(QuestionCircleOutlined), icon);
+    alert.append(icon);
   });
 }
 onMounted(() => {
@@ -91,8 +96,8 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); });
 .global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
 .global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
 .ops-page .ant-alert { position: relative; width: 30px; min-height: 30px; padding: 0; overflow: visible; cursor: help; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
-.ops-page .ant-alert::before { display: grid; width: 28px; height: 28px; place-items: center; content: 'ⓘ'; color: var(--ant-color-primary); font-size: 16px; font-weight: 600; }
-.ops-page .ant-alert > * { display: none; }
+.ops-page .ant-alert .ops-help-icon { display: grid; width: 28px; height: 28px; place-items: center; color: var(--ant-color-primary); font-size: 16px; }
+.ops-page .ant-alert > *:not(.ops-help-icon) { display: none; }
 .ops-page .ant-alert::after { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: max-content; max-width: min(420px, calc(100vw - 48px)); padding: 9px 12px; content: attr(data-help); pointer-events: none; color: var(--ant-color-text); font-size: 13px; font-weight: 400; line-height: 1.55; text-align: left; white-space: normal; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; background: var(--ant-color-bg-elevated); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; }
 .ops-page .ant-alert:hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
 .ops-page .ant-alert:hover::after, .ops-page .ant-alert:focus-visible::after { opacity: 1; transform: translateY(0); }
