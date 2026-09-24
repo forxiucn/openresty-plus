@@ -101,4 +101,7 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); });
 .ops-page .ant-alert::after { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: max-content; max-width: min(420px, calc(100vw - 48px)); padding: 9px 12px; content: attr(data-help); pointer-events: none; color: var(--ant-color-text); font-size: 13px; font-weight: 400; line-height: 1.55; text-align: left; white-space: normal; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; background: var(--ant-color-bg-elevated); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; }
 .ops-page .ant-alert:hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
 .ops-page .ant-alert:hover::after, .ops-page .ant-alert:focus-visible::after { opacity: 1; transform: translateY(0); }
+.ops-page > .ant-card { position: relative; }
+.ops-page > .ant-card > .ant-alert { position: absolute; z-index: 3; top: 20px; right: 24px; margin: 0 !important; }
+.ops-page > .ant-card > .ant-alert::after { top: calc(100% + 8px); right: 0; left: auto; }
 </style>
