@@ -6,7 +6,7 @@
 
 ## 决策
 
-生产节点必须通过本机 Unix socket 使用 Nginx Control REST API 执行 reload。Control API 不可用、权限错误、返回失败或结果超时时，发布失败或进入未知状态，不自动回退到 `nginx -s reload`。
+节点必须通过本机 Unix socket 使用 Nginx Control REST API 执行 reload；控制面通过节点登记的 HTTP 转发地址编排请求。Control API 不可用、权限错误、返回失败或结果超时时，发布失败或进入未知状态，不自动回退到 `nginx -s reload`。
 
 ## 选择理由
 

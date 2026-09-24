@@ -2,7 +2,9 @@
 
 > 文档状态：设计基线（供评审和后续实现）  
 > 适用目标：多中心、多节点的 HTTP/HTTPS 与 TCP/UDP 配置集中管理  
-> 核心原则：Git 保存期望状态，Spring Boot 编排发布并经受限 SSH 调度节点本机脚本，Vue Web 提供图形化管理，Nginx/OpenResty 承载数据面；生产运行时不依赖 AI。
+> 当前实现原则：MySQL 保存结构化配置、版本快照和审计，Spring Boot 编排发布，Vue Web 提供图形化管理，OpenResty Lua 承载可热更新运行时规则，Control API 负责原生配置 reload；生产运行时不依赖 AI。
+
+> 文档状态说明：本文保留了项目早期 Git/JGit/SSH 方案的设计推演，当前代码已切换为 MySQL 运行时配置。实际开发和部署以 `README.md`、`CONTEXT.md`、ADR-0011 及当前 `docker-compose.yaml` 为准。
 
 ## 1. 执行摘要
 
@@ -731,7 +733,7 @@ Spring Boot 通过 JGit 固定 commit 并 sparse checkout，生成制品和报�
 
 ---
 
-**设计结论：** Git 是配置源历史，签名制品是发布对象，Spring Boot 是发布控制面，受限 SSH 与节点固定脚本构成执行边界，Web 是图形化管理入口，OpenResty 是数据面。访问策略使用结构化版本数据，由经审查的 Lua 评估器在适当阶段执行。生产可靠性来自固定版本、目标环境校验、逐节点状态确认、分批发布、原子切换和可重复补偿，而不是单靠 Git 提交或一次 reload 请求。
+**当前实现结论：** MySQL 是配置和版本快照的事实来源，Spring Boot 是发布控制面，Web 是图形化管理入口，OpenResty Lua 是运行时规则执行面，Control API 是原生配置 reload 通道。Web 保存不会自动生效：运行时规则需要先发布快照，监听端口及原生 HTTP/Stream 配置需要生成配置并 reload；`/api/centers/{centerId}/deployments` 可一次完成这三个步骤。生产可靠性来自配置校验、版本快照、逐节点结果、审计记录和可回滚版本。Git/JGit、Redis Streams、rsync/SSH 仍属于历史或可选扩展，不是当前 Compose 闭环的必需组件。
 
 ## 20. IP 与 HTTP API 限速实现建议
 

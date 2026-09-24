@@ -2,11 +2,11 @@
 
 ## 状态
 
-已接受
+已废止（当前实现由 Spring Boot 直接编排）
 
 ## 决策
 
-发布、校验和回滚任务使用 Redis Streams Consumer Group；任务结果和审计持久化到 MySQL。
+历史方案曾计划使用 Redis Streams Consumer Group。当前发布、配置渲染和 reload 编排由 Spring Boot 服务直接执行，任务结果和审计持久化到 MySQL；Redis 仅作为外部可选依赖。
 
 ## 选择理由
 

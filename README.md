@@ -6,7 +6,7 @@
 
 - `backend/`：Spring Boot 4.1.1 控制面，Java 21，Maven
 - `frontend/`：官方 Vben Admin v5.7.0，`@vben/web-antd`
-- `deploy/`：Control API 节点镜像和受限发布脚本
+- `deploy/`：OpenResty 节点镜像、运行时 Lua 和节点注册脚本
 - `docs/`：ADR 与开发决策
 - `CONTEXT.md`：领域词汇
 
@@ -33,23 +33,21 @@ docker compose up -d --build
 - OpenResty 节点 2：<http://localhost:28080/health>
 - Swagger UI：<http://localhost:8080/swagger-ui.html>
 
-停止并保留数据卷：
+停止容器（配置目录保留在项目中）：
 
 ```bash
 docker compose down
 ```
 
-清理开发数据库和 Redis 数据卷：
+Compose 不创建 MySQL、Redis 或 Docker named volume。配置渲染目录直接绑定到 `./runtime/native-config/`。
 
-```bash
-docker compose down -v
-```
+Compose 的两个测试节点使用 `deploy/openresty/Dockerfile.control-api`：Nginx 1.31.5，启用官方 Control API、HTTP Lua 和 Stream Lua。当前 `docker-compose.yaml` 中所有服务使用 host 网络；前端监听 5173，两个测试节点分别使用 18080/28080，Control API 转发端口分别为 18081/28081。
 
-Compose 的两个测试节点使用 `deploy/openresty/Dockerfile.control-api`：Nginx 1.31.5，启用官方 Control API、HTTP Lua 和 Stream Lua。Control API 实际监听容器内 Unix Socket `/run/openresty/control.sock`；节点启动脚本通过只在 Docker 私有网络可见的 `socat` 端口转发给控制面，宿主机不会暴露该管理端口。
+`node-registration` 服务会在控制面可用后，将两个测试节点自动登记到示例中心 `c62981ca-9bb7-4ab4-b871-5c9943efe84d`。节点 Control API 地址使用 `http://127.0.0.1:18081` 和 `http://127.0.0.1:28081`。
 
 Compose 不创建 MySQL 或 Redis 容器，控制面直接连接 `.env` 中配置的外部服务。
 
-运行时配置以 MySQL 的不可变版本快照为准。Lua 规则可以按版本热更新；新增监听端口、修改原生 HTTP/Stream 块等必须调用本机 Control API 执行 reload。
+运行时配置以 MySQL 的不可变版本快照为准。Web 表单保存只写入 MySQL；点击发布后，OpenResty Lua 工作进程按默认 5 秒轮询读取新快照。新增监听端口、修改原生 HTTP/Stream 块等还必须生成原生配置并调用节点 Control API 执行 reload。
 
 运行配置 API：
 
@@ -62,6 +60,7 @@ Compose 不创建 MySQL 或 Redis 容器，控制面直接连接 `.env` 中配�
 - `GET /api/centers/{centerId}/native-configurations/preview` 预览由数据库配置生成的完整 Nginx include 树和校验和。
 - `POST /api/centers/{centerId}/native-configurations/materialize` 原子写入控制面渲染目录，供节点下发、`nginx -t` 和 Control API reload 编排读取。
 - `POST /api/centers/{centerId}/reload` 对中心内已启用节点执行 Control API reload，并记录逐节点结果。
+- `POST /api/centers/{centerId}/deployments` 一次完成发布快照、生成原生配置和所有启用节点 reload。
 
 表单字典 API：
 
@@ -73,15 +72,6 @@ Compose 不创建 MySQL 或 Redis 容器，控制面直接连接 `.env` 中配�
 
 ### Host 网络模式与动态端口
 
-容器以默认 bridge 网络启动时，宿主机仅能访问 Compose `ports` 中显式发布的端口。要让动态生成的 `listen` 端口直接绑定 Docker 宿主机，使用 Host 网络覆盖文件启动**单个**节点：
-
-```bash
-docker compose -f docker-compose.yaml -f docker-compose.host-network.yaml \
-  up -d --build control-plane openresty-east-1
-```
-
-该模式下，HTTP/Stream 的新增监听端口在“生成原生配置并重载”成功后会直接由宿主机监听。控制面通过 `http://host.docker.internal:8080` 被该节点访问；请在“中心与节点”把该节点的 Control API 配成 `http://host.docker.internal:18081`。
-
-同一宿主机只能运行一个使用相同监听端口的 Host 网络 OpenResty 容器。多节点应部署到不同主机；若必须同机运行，所有 HTTP、Stream 和 Control API 管理端口都必须互不冲突。
+项目已统一使用 host 网络，不再使用 `docker-compose.host-network.yaml`。HTTP/Stream 新增监听端口在“生成原生配置并重载”成功后直接绑定宿主机。由于 host 网络共享宿主机端口，同一主机上的节点、前端和控制面监听端口必须互不冲突；生产环境应按节点主机规划端口。
 
 HTTP Upstream 支持在界面中维护多个后端实例：地址、端口、权重、最大失败次数、失败判定时间、备用实例和启停状态。原生渲染会只写入已启用实例，并生成对应的 `server`、`weight`、`max_fails` 与 `fail_timeout` 指令；未配置启用实例时会保留一个 `down` 占位，确保 `nginx -t` 可通过且不会误转发流量。启用 TLS 的 HTTP server 也会在预览中给出证书引用缺失提示，生成监听保持为 HTTP，避免产生无法通过校验的配置。

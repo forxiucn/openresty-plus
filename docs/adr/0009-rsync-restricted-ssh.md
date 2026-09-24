@@ -6,8 +6,8 @@
 
 ## 决策
 
-Spring Boot 通过 rsync over SSH 传输签名制品，再通过受限 SSH 调用节点预置固定脚本。脚本在节点本机完成校验、原子切换和 Control API reload。
+生产部署可通过 rsync over SSH 传输制品；当前 Compose 联调使用项目目录绑定挂载。两种方式最终都由节点本机 Unix Socket Control API 执行 reload。
 
 ## 结果
 
-控制面不直连 Control API，不拥有任意远程 shell 或 root 权限。SSH 输入必须是结构化、已校验的任务和制品标识；脚本 root-owned 且只能执行白名单动作。
+控制面不执行任意远程 shell。节点 Control API 的 Unix Socket 不直接暴露给浏览器，联调环境通过节点登记的 HTTP 转发地址访问，生产环境应保留受限 SSH 和固定脚本边界。

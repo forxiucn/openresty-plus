@@ -2,7 +2,7 @@
 
 ## 领域边界
 
-本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。Git 保存配置期望状态；Spring Boot 控制面负责校验、审计和发布编排；管理 Web 提供可视化操作；节点本机固定脚本执行受限发布动作。
+本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。MySQL 保存结构化配置、不可变版本快照和审计；Spring Boot 控制面负责校验、生成原生配置和发布编排；管理 Web 提供可视化操作；OpenResty Lua 负责已发布运行时快照，Control API 负责原生配置 reload。
 
 ## 术语
 
@@ -20,7 +20,7 @@
 
 ### 配置制品（Configuration Artifact）
 
-由固定 Git commit、中心变量、策略数据、校验基线和签名摘要组成的不可变发布对象。
+由 MySQL 版本快照、中心变量、策略数据、渲染校验基线和内容摘要组成的不可变发布对象。
 
 ### 策略模块（Policy Module）
 
@@ -36,7 +36,7 @@
 
 ### 活动版本（Active Version）
 
-节点当前实际运行并经 reload 确认的配置制品版本，不等同于 Git 分支最新版本。
+节点当前实际运行并经 reload 确认的配置制品版本，不等同于数据库中尚未发布的编辑状态。
 
 ### 配置 JSON
 
@@ -44,19 +44,11 @@
 
 ### Web 配置生效
 
-Web 中的配置保存先生成结构化 Git 变更，再经过校验和发布；节点 reload 与健康检查成功后才称为生效。数据库保存的是操作和状态索引，不能绕过 Git 直接修改活动配置。
-
-### Git 变更流程
-
-开发/测试环境允许 Web 将结构化变更提交到受控配置分支并自动发布；生产环境通过变更分支和 Pull Request 审批，合并固定 commit 后再发布。
-
-### Git 平台
-
-控制面通过 Git 服务抽象访问仓库；开发环境可使用本地 bare Git，生产环境对接 GitLab/GitHub Enterprise 等托管平台，PR/MR 能力由独立适配器提供。
+Web 保存只更新 MySQL。发布运行时配置后，OpenResty Lua 默认每 5 秒轮询新版本；监听端口和原生 HTTP/Stream 指令需要额外生成配置并执行 Control API reload。完整发布使用中心 deployment 接口，成功以版本、逐节点 reload 结果和审计记录共同判定。
 
 ### MVP 范围
 
-首个可运行版本包含中心/节点/监听器资源管理、配置浏览与版本差异、IP/API 策略模块及资源绑定启停、测试环境自动发布、受限 SSH 节点发布、Control API reload、逐节点回滚和完整审计。限速先完成模型、页面、校验和 dry-run 观察能力。
+当前可运行版本包含中心/节点/监听器资源管理、配置浏览与版本差异、IP/API 策略模块及资源绑定启停、运行时快照发布、原生配置渲染、Control API reload、逐节点结果和完整审计。限速、DNS、健康检查及 HTTP/Stream 指令由 MySQL 配置和页面管理。
 
 ### 开发依赖凭据
 
@@ -64,7 +56,7 @@ MySQL 和 Redis 仅作为外置开发依赖通过环境变量或本地未提交�
 
 ### 工程命名
 
-仓库采用 `openresty-plus` 命名；后端目录为 `backend`，前端目录为 `frontend`，脚本目录为 `deploy`，配置样例目录为 `config-repo`。后端应用名为 `openresty-plus-control-plane`，前端应用名为 `openresty-plus-console`，完整 Java 基础包名为 `net.daoke.openrestyplus`。
+仓库采用 `openresty-plus` 命名；后端目录为 `backend`，前端目录为 `frontend`，脚本目录为 `deploy`，运行时渲染目录为 `runtime/native-config`。后端应用名为 `openresty-plus-control-plane`，前端应用名为 `openresty-plus-console`，完整 Java 基础包名为 `net.daoke.openrestyplus`。
 
 前端固定使用官方 Vben Admin `v5.7.0` tag，对应 Node 22.18.0 LTS 和 pnpm 10.33.4；不将固定 tag 与官方 `main` 的工具版本混用。
 
@@ -82,7 +74,7 @@ MySQL 和 Redis 仅作为外置开发依赖通过环境变量或本地未提交�
 
 ### 异步任务
 
-发布、校验和回滚任务通过 Redis Streams Consumer Group 执行；Redis 负责短期调度和待处理恢复，MySQL 保存最终任务状态、发布结果和审计证据。
+当前发布和 reload 编排由 Spring Boot 服务直接执行；Redis 作为外部可选依赖，不是配置权威来源。MySQL 保存版本、节点结果和审计证据。
 
 ### 数据库迁移
 
@@ -90,7 +82,7 @@ Flyway SQL 是 MySQL schema 的唯一来源；JPA 只负责运行时映射，Hib
 
 ### 节点发布通道
 
-配置制品通过 rsync over SSH 传输；控制面只能调用受限 SSH 固定脚本。节点脚本负责校验、原子切换、nginx -t、通过本机 Unix socket 调用 Control API reload 和健康检查，不接受任意 shell 命令。
+当前联调节点通过项目目录绑定挂载读取控制面生成目录。节点本机 Control API 仍使用 Unix Socket，控制面通过节点登记的 HTTP 转发地址调用 reload；生产环境可继续采用受限 SSH/rsync，但不属于当前 Compose 联调闭环。
 
 ### Control API 发布硬依赖
 
