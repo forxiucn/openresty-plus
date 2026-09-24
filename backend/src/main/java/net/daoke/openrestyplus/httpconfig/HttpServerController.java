@@ -100,6 +100,8 @@ public class HttpServerController {
             request.bodyLengthMax(), request.upstreamId(), request.proxyConnectTimeoutMs(),
             request.proxyReadTimeoutMs(), request.proxySendTimeoutMs(), request.rateLimitEnabled(),
             request.ratePerSecond(), request.rateLimitBurst(), request.rateLimitNodelay()));
+        saved.applyDynamicDns(request.dynamicDnsEnabled(), request.dynamicDnsHost(), request.dynamicDnsPort());
+        saved = locations.save(saved);
         audit.success(centerId, "HTTP_LOCATION_CREATED", "HTTP_LOCATION", saved.getId());
         return LocationView.from(saved);
     }
@@ -114,6 +116,7 @@ public class HttpServerController {
             request.headerLengthMax(), request.bodyLengthMin(), request.bodyLengthMax(), request.upstreamId(),
             request.proxyConnectTimeoutMs(), request.proxyReadTimeoutMs(), request.proxySendTimeoutMs(),
             request.rateLimitEnabled(), request.ratePerSecond(), request.rateLimitBurst(), request.rateLimitNodelay());
+        location.applyDynamicDns(request.dynamicDnsEnabled(), request.dynamicDnsHost(), request.dynamicDnsPort());
         var saved = locations.save(location);
         audit.success(centerId, "HTTP_LOCATION_UPDATED", "HTTP_LOCATION", locationId);
         return LocationView.from(saved);
@@ -125,6 +128,10 @@ public class HttpServerController {
         requireServer(centerId, serverId);
         locations.delete(requireLocation(serverId, locationId));
         audit.success(centerId, "HTTP_LOCATION_DELETED", "HTTP_LOCATION", locationId);
+    }
+    @PutMapping("/{serverId}/locations/{locationId}/dynamic-dns")
+    public LocationView dynamicDns(@PathVariable UUID centerId,@PathVariable UUID serverId,@PathVariable UUID locationId,@Valid @RequestBody DynamicDnsRequest request){
+        requireServer(centerId,serverId); var location=requireLocation(serverId,locationId); if(request.enabled()&&(request.host()==null||request.host().isBlank()||request.port()==null))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"启用动态 DNS 时必须提供域名和端口"); location.applyDynamicDns(request.enabled(),request.host(),request.port()); return LocationView.from(locations.save(location));
     }
 
     private void requireCenter(UUID centerId) {
@@ -194,13 +201,19 @@ public class HttpServerController {
         boolean rateLimitEnabled,
         @Min(1) @Max(100000) int ratePerSecond,
         @Min(0) @Max(100000) int rateLimitBurst,
-        boolean rateLimitNodelay
+        boolean rateLimitNodelay,
+        boolean dynamicDnsEnabled,
+        @jakarta.validation.constraints.Pattern(regexp = "[0-9A-Za-z.-]{1,253}") String dynamicDnsHost,
+        @Min(1) @Max(65535) Integer dynamicDnsPort
     ) {
         @AssertTrue(message = "headerLengthMin must not exceed headerLengthMax")
         public boolean isHeaderLengthRangeValid() { return headerLengthMin <= headerLengthMax; }
 
         @AssertTrue(message = "bodyLengthMin must not exceed bodyLengthMax")
         public boolean isBodyLengthRangeValid() { return bodyLengthMin <= bodyLengthMax; }
+
+        @AssertTrue(message = "dynamic DNS requires a host and port")
+        public boolean isDynamicDnsValid() { return !dynamicDnsEnabled || (dynamicDnsHost != null && !dynamicDnsHost.isBlank() && dynamicDnsPort != null); }
     }
 
     public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
@@ -215,14 +228,17 @@ public class HttpServerController {
                                int headerLengthMin, int headerLengthMax, long bodyLengthMin, long bodyLengthMax,
                                UUID upstreamId, int proxyConnectTimeoutMs, int proxyReadTimeoutMs,
                                int proxySendTimeoutMs, boolean rateLimitEnabled, int ratePerSecond,
-                               int rateLimitBurst, boolean rateLimitNodelay) {
+                               int rateLimitBurst, boolean rateLimitNodelay, boolean dynamicDnsEnabled,
+                               String dynamicDnsHost, Integer dynamicDnsPort) {
         static LocationView from(HttpLocation location) {
             return new LocationView(location.getId(), location.getPath(), location.getMethods(),
                 location.getContentTypes(), location.getHeaderLengthMin(), location.getHeaderLengthMax(),
                 location.getBodyLengthMin(), location.getBodyLengthMax(), location.getUpstreamId(),
                 location.getProxyConnectTimeoutMs(), location.getProxyReadTimeoutMs(),
                 location.getProxySendTimeoutMs(), location.isRateLimitEnabled(), location.getRatePerSecond(),
-                location.getRateLimitBurst(), location.isRateLimitNodelay());
+                location.getRateLimitBurst(), location.isRateLimitNodelay(), location.isDynamicDnsEnabled(),
+                location.getDynamicDnsHost(), location.getDynamicDnsPort());
         }
     }
+    public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
 }

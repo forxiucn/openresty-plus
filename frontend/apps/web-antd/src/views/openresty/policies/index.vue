@@ -33,15 +33,16 @@ const apiForm = ref(newApiForm());
 
 const centerOptions = computed(() => centers.value.map((value) => ({ value: value.id, label: `${value.name}（${value.code}）` })));
 const modeOptions = [
-  { value: 'BLACKLIST', label: '黑名单：命中后拒绝' },
-  { value: 'WHITELIST', label: '白名单：仅允许命中项' },
+  { value: 'BLACKLIST', label: '黑名单：命中后拒绝（BLACKLIST）' },
+  { value: 'WHITELIST', label: '白名单：仅允许命中项（WHITELIST）' },
 ];
 const scopeOptions = [
-  { value: 'HTTP_SERVER', label: '七层：域名与端口' },
-  { value: 'HTTP_LOCATION', label: '七层：指定接口' },
-  { value: 'STREAM', label: '四层：服务端口' },
+  { value: 'HTTP_SERVER', label: '七层：域名与端口（HTTP_SERVER）' },
+  { value: 'HTTP_LOCATION', label: '七层：指定接口（HTTP_LOCATION）' },
+  { value: 'STREAM', label: '四层：服务端口（STREAM）' },
 ];
-const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].map((value) => ({ value, label: value }));
+const methodNames: Record<string, string> = { GET: '读取', POST: '创建', PUT: '全量更新', PATCH: '部分更新', DELETE: '删除', HEAD: '响应头', OPTIONS: '预检' };
+const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].map((value) => ({ value, label: `${methodNames[value]}（${value}）` }));
 const scopeLabel = (value: IpScope) => ({ STREAM: '四层：服务端口', HTTP_SERVER: '七层：域名与端口', HTTP_LOCATION: '七层：指定接口' })[value];
 const modeLabel = (value: Mode) => value === 'BLACKLIST' ? '黑名单' : '白名单';
 const targetOptions = computed(() => {

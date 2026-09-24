@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
-import { Alert as AAlert, Button as AButton, Card as ACard, Col as ACol, Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Row as ARow, Select as ASelect, Table as ATable, Tag as ATag, message } from 'ant-design-vue';
+import { Alert as AAlert, Button as AButton, Card as ACard, Checkbox as ACheckbox, Col as ACol, Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Row as ARow, Select as ASelect, Table as ATable, Tag as ATag, message } from 'ant-design-vue';
 
 type Center = { id: string; code: string; name: string };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number };
-type StreamServer = { id: string; serviceName: string; listenPort: number; protocol: 'TCP' | 'UDP'; upstreamId: string; accessLog: string; errorLog: string };
+type StreamServer = { id: string; serviceName: string; listenPort: number; protocol: 'TCP' | 'UDP'; upstreamId: string; accessLog: string; errorLog: string; dynamicDnsEnabled: boolean; dynamicDnsHost?: string; dynamicDnsPort?: number };
 
 const centers = ref<Center[]>([]);
 const upstreams = ref<StreamUpstream[]>([]);
@@ -16,7 +16,7 @@ const serverOpen = ref(false);
 const editingUpstreamId = ref<string>();
 const editingServerId = ref<string>();
 const freshUpstream = () => ({ name: '', targetHost: '', targetPort: 3306 });
-const freshServer = () => ({ serviceName: '', listenPort: 3306, protocol: 'TCP' as 'TCP' | 'UDP', upstreamId: undefined as string | undefined, accessLog: '', errorLog: '' });
+const freshServer = () => ({ serviceName: '', listenPort: 3306, protocol: 'TCP' as 'TCP' | 'UDP', upstreamId: undefined as string | undefined, accessLog: '', errorLog: '', dynamicDnsEnabled: false, dynamicDnsHost: '', dynamicDnsPort: 3306 });
 const upstreamForm = ref(freshUpstream());
 const serverForm = ref(freshServer());
 
@@ -44,7 +44,7 @@ async function load() {
   catch (error) { message.error(error instanceof Error ? error.message : '加载中心失败'); }
 }
 function openUpstream(value?: StreamUpstream) { editingUpstreamId.value = value?.id; upstreamForm.value = value ? { name: value.name, targetHost: value.targetHost, targetPort: value.targetPort } : freshUpstream(); upstreamOpen.value = true; }
-function openServer(value?: StreamServer) { editingServerId.value = value?.id; serverForm.value = value ? { serviceName: value.serviceName, listenPort: value.listenPort, protocol: value.protocol, upstreamId: value.upstreamId, accessLog: value.accessLog || '', errorLog: value.errorLog || '' } : freshServer(); serverOpen.value = true; }
+function openServer(value?: StreamServer) { editingServerId.value = value?.id; serverForm.value = value ? { serviceName: value.serviceName, listenPort: value.listenPort, protocol: value.protocol, upstreamId: value.upstreamId, accessLog: value.accessLog || '', errorLog: value.errorLog || '', dynamicDnsEnabled: value.dynamicDnsEnabled, dynamicDnsHost: value.dynamicDnsHost || '', dynamicDnsPort: value.dynamicDnsPort || 3306 } : freshServer(); serverOpen.value = true; }
 async function saveUpstream() {
   if (!selectedCenterId.value) return;
   if (!upstreamForm.value.name.trim() || !upstreamForm.value.targetHost.trim()) { message.warning('请填写服务标识和目标地址'); return; }
@@ -109,7 +109,7 @@ onMounted(load);
     </a-drawer>
     <a-drawer v-model:open="serverOpen" :title="editingServerId ? '编辑四层 Server' : '新增四层 Server'" :width="520">
       <a-alert class="mb-4" type="warning" show-icon message="监听端口变更需要发布，并在“版本与审计”执行原生配置重载后才会生效。" />
-      <a-form layout="vertical"><a-form-item label="服务名称" required extra="用于识别该监听服务，例如 mysql-proxy。"><a-input v-model:value="serverForm.serviceName" placeholder="例如：mysql-proxy" /></a-form-item><a-form-item label="监听端口" required><a-input-number v-model:value="serverForm.listenPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="传输协议" required><a-select v-model:value="serverForm.protocol" :options="[{ value: 'TCP', label: 'TCP（传输控制协议）' }, { value: 'UDP', label: 'UDP（用户数据报协议）' }]" /></a-form-item><a-form-item label="转发 Upstream" required><a-select v-model:value="serverForm.upstreamId" :options="upstreamOptions" placeholder="请选择已配置的转发目标" /></a-form-item><a-form-item label="访问日志" extra="留空时由系统按服务和端口生成。"><a-input v-model:value="serverForm.accessLog" placeholder="留空自动生成" /></a-form-item><a-form-item label="错误日志" extra="留空时由系统按服务和端口生成。"><a-input v-model:value="serverForm.errorLog" placeholder="留空自动生成" /></a-form-item></a-form>
+      <a-form layout="vertical"><a-form-item label="服务名称" required extra="用于识别该监听服务，例如 mysql-proxy。"><a-input v-model:value="serverForm.serviceName" placeholder="例如：mysql-proxy" /></a-form-item><a-form-item label="监听端口" required><a-input-number v-model:value="serverForm.listenPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="传输协议" required><a-select v-model:value="serverForm.protocol" :options="[{ value: 'TCP', label: '传输控制协议（TCP）' }, { value: 'UDP', label: '用户数据报协议（UDP）' }]" /></a-form-item><a-form-item label="转发 Upstream" required><a-select v-model:value="serverForm.upstreamId" :options="upstreamOptions" placeholder="请选择已配置的转发目标" /></a-form-item><a-form-item><a-checkbox v-model:checked="serverForm.dynamicDnsEnabled">使用变量动态解析目标域名</a-checkbox></a-form-item><a-row v-if="serverForm.dynamicDnsEnabled" :gutter="16"><a-col :span="16"><a-form-item label="目标域名" required><a-input v-model:value="serverForm.dynamicDnsHost" placeholder="mysql.internal.example.com" /></a-form-item></a-col><a-col :span="8"><a-form-item label="目标端口" required><a-input-number v-model:value="serverForm.dynamicDnsPort" class="w-full" :min="1" :max="65535" /></a-form-item></a-col></a-row><a-form-item label="访问日志" extra="留空时由系统按服务和端口生成。"><a-input v-model:value="serverForm.accessLog" placeholder="留空自动生成" /></a-form-item><a-form-item label="错误日志" extra="留空时由系统按服务和端口生成。"><a-input v-model:value="serverForm.errorLog" placeholder="留空自动生成" /></a-form-item></a-form>
       <template #footer><div class="flex justify-end gap-2"><a-button @click="serverOpen = false">取消</a-button><a-button type="primary" @click="saveServer">保存</a-button></div></template>
     </a-drawer>
   </div>

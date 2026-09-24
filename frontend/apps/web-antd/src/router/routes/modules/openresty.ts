@@ -43,6 +43,12 @@ const routes: RouteRecordRaw[] = [
     path: '/openresty/runtime-configurations',
   },
   {
+    component: () => import('#/views/openresty/dns-resolvers/index.vue'),
+    meta: { icon: 'lucide:server-cog', order: -7.5, title: 'DNS Resolver' },
+    name: 'DnsResolverManagement',
+    path: '/openresty/dns-resolvers',
+  },
+  {
     component: () => import('#/views/openresty/stream-config/index.vue'),
     meta: {
       icon: 'lucide:network',

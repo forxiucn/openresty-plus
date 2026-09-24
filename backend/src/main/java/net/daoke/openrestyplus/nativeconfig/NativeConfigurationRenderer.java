@@ -1,6 +1,9 @@
 package net.daoke.openrestyplus.nativeconfig;
 
 import net.daoke.openrestyplus.center.CenterRepository;
+import net.daoke.openrestyplus.dns.DnsResolverConfiguration;
+import net.daoke.openrestyplus.dns.DnsResolverConfigurationRepository;
+import net.daoke.openrestyplus.dns.DnsResolverScope;
 import net.daoke.openrestyplus.httpconfig.HttpLocation;
 import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
 import net.daoke.openrestyplus.httpconfig.HttpServer;
@@ -58,6 +61,7 @@ public class NativeConfigurationRenderer {
     private final TlsCertificateRepository tlsCertificates;
     private final StreamUpstreamRepository streamUpstreams;
     private final StreamServerRepository streamServers;
+    private final DnsResolverConfigurationRepository dnsResolvers;
     private final Path renderRoot;
 
     public NativeConfigurationRenderer(CenterRepository centers,
@@ -68,6 +72,7 @@ public class NativeConfigurationRenderer {
                                        TlsCertificateRepository tlsCertificates,
                                        StreamUpstreamRepository streamUpstreams,
                                        StreamServerRepository streamServers,
+                                       DnsResolverConfigurationRepository dnsResolvers,
                                        @Value("${OPENRESTY_RENDER_ROOT:/tmp/openresty-plus/rendered}") String renderRoot) {
         this.centers = centers;
         this.httpUpstreams = httpUpstreams;
@@ -77,6 +82,7 @@ public class NativeConfigurationRenderer {
         this.tlsCertificates = tlsCertificates;
         this.streamUpstreams = streamUpstreams;
         this.streamServers = streamServers;
+        this.dnsResolvers = dnsResolvers;
         this.renderRoot = Path.of(renderRoot).toAbsolutePath().normalize();
     }
 
@@ -97,6 +103,7 @@ public class NativeConfigurationRenderer {
         Map<UUID, TlsCertificate> certificateById = new LinkedHashMap<>();
         for (TlsCertificate certificate : tlsCertificates.findByCenterIdOrderByName(centerId)) certificateById.put(certificate.getId(), certificate);
         List<StreamServer> streamServerValues = streamServers.findByCenterIdOrderByListenPortAsc(centerId);
+        List<DnsResolverConfiguration> resolverValues = dnsResolvers.findByCenterIdOrderByScopeAsc(centerId).stream().filter(DnsResolverConfiguration::isEnabled).toList();
 
         for (HttpUpstream upstream : httpUpstreamById.values()) {
             requireName(upstream.getName(), "HTTP upstream name");
@@ -116,7 +123,7 @@ public class NativeConfigurationRenderer {
                 }
                 if (location.isRateLimitEnabled()) rateLimitedLocations.add(location);
             files.put("http/location/" + serverStem + "/" + locationFileName(location.getPath()) + ".conf",
-                    httpLocation(server, location, httpUpstreamById.get(location.getUpstreamId()), nodeRoot, now));
+                    httpLocation(server, location, httpUpstreamById.get(location.getUpstreamId()), resolver(resolverValues, DnsResolverScope.HTTP_LOCATION, location.getId()), nodeRoot, now));
             }
             TlsCertificate certificate = null;
             if (server.isSslEnabled()) {
@@ -126,7 +133,7 @@ public class NativeConfigurationRenderer {
                 files.put(certificateStem + ".crt", certificate.getCertificatePem() + (certificate.getChainPem() == null || certificate.getChainPem().isBlank() ? "" : "\n" + certificate.getChainPem()));
                 files.put(certificateStem + ".key", certificate.getPrivateKeyPem());
             }
-            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, certificate, now));
+            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, certificate, resolver(resolverValues, DnsResolverScope.HTTP_SERVER, server.getId()), now));
         }
         for (StreamUpstream upstream : streamUpstreamById.values()) {
             requireName(upstream.getName(), "Stream upstream name");
@@ -139,9 +146,12 @@ public class NativeConfigurationRenderer {
                 throw invalid("Stream server " + server.getServiceName() + ":" + server.getListenPort() + " references an upstream outside this center");
             }
             files.put("stream/server/" + server.getServiceName() + "." + server.getListenPort()
-                    + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", streamServer(server, streamUpstreamById.get(server.getUpstreamId()), now));
+                    + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", streamServer(server, streamUpstreamById.get(server.getUpstreamId()), resolver(resolverValues, DnsResolverScope.STREAM_SERVER, server.getId()), now));
         }
-        files.put("nginx.conf", rootConfiguration(nodeRoot, now, rateLimitedLocations));
+        files.put("nginx.conf", rootConfiguration(nodeRoot, now, rateLimitedLocations,
+                streamServerValues.stream().filter(StreamServer::isDynamicDnsEnabled).toList(),
+                resolver(resolverValues, DnsResolverScope.HTTP, null),
+                resolver(resolverValues, DnsResolverScope.STREAM, null)));
         return new RenderedConfiguration(centerId, center.getCode(), now, nodeRoot + "/nginx.conf", files, warnings, checksum(files));
     }
 
@@ -177,13 +187,31 @@ public class NativeConfigurationRenderer {
         }
     }
 
-    private String rootConfiguration(String nodeRoot, Instant now, List<HttpLocation> rateLimitedLocations) {
+    private String rootConfiguration(String nodeRoot, Instant now, List<HttpLocation> rateLimitedLocations,
+                                     List<StreamServer> dynamicStreamServers,
+                                     DnsResolverConfiguration httpResolver,
+                                     DnsResolverConfiguration streamResolver) {
         StringBuilder rateZones = new StringBuilder();
         for (HttpLocation location : rateLimitedLocations) {
             rateZones.append("    # 接口限速：按客户端 IP 统计，规则由 Location 配置维护。\n")
                 .append("    limit_req_zone $binary_remote_addr zone=").append(rateZone(location)).append(":10m rate=")
                 .append(location.getRatePerSecond()).append("r/s;\n");
         }
+        StringBuilder streamTargetMaps = new StringBuilder();
+        if (!dynamicStreamServers.isEmpty()) {
+            streamTargetMaps.append("    # 四层动态域名目标：按监听端口选择域名，Resolver 在缓存到期后重新解析。\n")
+                .append("    map $server_port $openresty_plus_stream_target {\n")
+                .append("        default \"\";\n");
+        }
+        for (StreamServer server : dynamicStreamServers) {
+            if (server.getDynamicDnsHost() == null || server.getDynamicDnsPort() == null) {
+                throw invalid("Dynamic DNS stream server requires host and port");
+            }
+            requireHostOrAddress(server.getDynamicDnsHost(), "Stream dynamic DNS host");
+            streamTargetMaps.append("        ").append(server.getListenPort()).append(' ')
+                .append(server.getDynamicDnsHost()).append(";\n");
+        }
+        if (!dynamicStreamServers.isEmpty()) streamTargetMaps.append("    }\n");
         return header("nginx.conf", now)
             + "worker_processes auto;\n"
             + "# 工作进程与事件模型由平台统一维护，业务配置通过下方 include 加载。\n"
@@ -195,7 +223,7 @@ public class NativeConfigurationRenderer {
             + "events { worker_connections 1024; }\n\n"
             + "http {\n"
             + "    # 七层 HTTP 配置：上游、虚拟主机和接口配置分别独立存放。\n"
-            + "    resolver 127.0.0.11 ipv6=off valid=10s;\n"
+            + resolverDirective(httpResolver, "    ", true)
             + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
             + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
             + "    lua_shared_dict runtime_configuration 10m;\n"
@@ -209,6 +237,8 @@ public class NativeConfigurationRenderer {
             + "}\n\n"
             + "stream {\n"
             + "    # 四层 TCP/UDP 配置：上游和监听服务分别独立存放。\n"
+            + resolverDirective(streamResolver, "    ", false)
+            + streamTargetMaps
             + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
             + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
             + "    log_format openresty_plus_stream '$remote_addr [$time_local] $protocol $status $bytes_sent $bytes_received $session_time';\n"
@@ -241,7 +271,7 @@ public class NativeConfigurationRenderer {
         return value.toString();
     }
 
-    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, TlsCertificate certificate, Instant now) {
+    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, TlsCertificate certificate, DnsResolverConfiguration resolver, Instant now) {
         String stem = server.getDomain() + "." + server.getListenPort() + (server.isSslEnabled() ? ".ssl" : "");
         StringBuilder result = new StringBuilder(header("http.server." + stem + ".conf", now));
         result.append("# HTTP 虚拟主机：").append(server.getDomain()).append(':').append(server.getListenPort()).append("。\n")
@@ -251,6 +281,7 @@ public class NativeConfigurationRenderer {
             .append("    server_name ").append(server.getDomain()).append(";\n")
             .append("    access_log ").append(directivePath(server.getAccessLog())).append(" openresty_plus;\n")
             .append("    error_log ").append(directivePath(server.getErrorLog())).append(" warn;\n");
+        result.append(resolverDirective(resolver, "    ", false));
         if (server.isSslEnabled()) {
             String certificateStem = nodeRoot + "/certificates/" + certificate.getId();
             result.append("    # TLS 证书：").append(certificate.getName()).append("（").append(certificate.getCommonName()).append("）。\n")
@@ -268,7 +299,7 @@ public class NativeConfigurationRenderer {
         return result.append("}\n").toString();
     }
 
-    private String httpLocation(HttpServer server, HttpLocation location, HttpUpstream upstream, String nodeRoot, Instant now) {
+    private String httpLocation(HttpServer server, HttpLocation location, HttpUpstream upstream, DnsResolverConfiguration resolver, String nodeRoot, Instant now) {
         return header("http.location." + server.getDomain() + "." + server.getListenPort() + "." + locationFileName(location.getPath()) + ".conf", now)
             + "# HTTP 接口转发规则，由控制面生成；修改请通过管理界面完成。\n"
             + "# service: " + server.getDomain() + "\n"
@@ -276,9 +307,10 @@ public class NativeConfigurationRenderer {
             + "# method: " + methods(location.getMethods()) + "\n"
             + "# upstream: " + upstream.getName() + "\n"
             + "location " + location.getPath() + " {\n"
+            + resolverDirective(resolver, "    ", false)
             + "    access_by_lua_block { require(\"runtime\").enforce() }\n"
             + rateLimit(location)
-            + "    proxy_pass http://" + upstream.getName() + ";\n"
+            + dynamicDns(location, upstream)
             + "    proxy_connect_timeout " + location.getProxyConnectTimeoutMs() + "ms;\n"
             + "    proxy_read_timeout " + location.getProxyReadTimeoutMs() + "ms;\n"
             + "    proxy_send_timeout " + location.getProxySendTimeoutMs() + "ms;\n"
@@ -298,6 +330,14 @@ public class NativeConfigurationRenderer {
         return value + ";\n";
     }
 
+    private static String dynamicDns(HttpLocation location, HttpUpstream upstream) {
+        if (!location.isDynamicDnsEnabled()) return "    proxy_pass http://" + upstream.getName() + ";\n";
+        if (location.getDynamicDnsHost() == null || location.getDynamicDnsPort() == null) throw invalid("Dynamic DNS location requires host and port");
+        return "    # 目标域名赋值给变量；Resolver 缓存到期后会重新解析。\n"
+            + "    set $openresty_plus_dynamic_target " + location.getDynamicDnsHost() + ";\n"
+            + "    proxy_pass http://$openresty_plus_dynamic_target:" + location.getDynamicDnsPort() + ";\n";
+    }
+
     private String streamUpstream(StreamUpstream upstream, Instant now) {
         return header("stream.upstream." + upstream.getName() + ".conf", now)
             + "# 四层上游服务：" + upstream.getName() + "。\n"
@@ -306,7 +346,7 @@ public class NativeConfigurationRenderer {
             + "}\n";
     }
 
-    private String streamServer(StreamServer server, StreamUpstream upstream, Instant now) {
+    private String streamServer(StreamServer server, StreamUpstream upstream, DnsResolverConfiguration resolver, Instant now) {
         return header("stream.server." + server.getServiceName() + "." + server.getListenPort()
             + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", now)
             + "# 四层监听服务：" + server.getServiceName() + ':' + server.getListenPort() + "。\n"
@@ -315,10 +355,30 @@ public class NativeConfigurationRenderer {
             + "    listen " + server.getListenPort() + (server.getProtocol() == StreamProtocol.UDP ? " udp" : "") + ";\n"
             + "    # 在读取 TCP/UDP 会话数据前校验本服务绑定的 IP 黑白名单。\n"
             + "    preread_by_lua_block { require(\"stream_runtime\").enforce() }\n"
-            + "    proxy_pass " + upstream.getName() + ";\n"
+            + resolverDirective(resolver, "    ", false)
+            + streamProxyPass(server, upstream)
             + "    access_log " + directivePath(server.getAccessLog()) + " openresty_plus_stream;\n"
             + "    error_log " + directivePath(server.getErrorLog()) + " warn;\n"
             + "}\n";
+    }
+
+    private static String streamProxyPass(StreamServer server, StreamUpstream upstream) {
+        if (!server.isDynamicDnsEnabled()) return "    proxy_pass " + upstream.getName() + ";\n";
+        if (server.getDynamicDnsHost() == null || server.getDynamicDnsPort() == null) throw invalid("Dynamic DNS stream server requires host and port");
+        requireHostOrAddress(server.getDynamicDnsHost(), "Stream dynamic DNS host");
+        return "    # 通过 stream 级 map 变量引用域名；Resolver 缓存到期后会重新解析。\n"
+            + "    proxy_pass $openresty_plus_stream_target:" + server.getDynamicDnsPort() + ";\n";
+    }
+
+    private static DnsResolverConfiguration resolver(List<DnsResolverConfiguration> values, DnsResolverScope scope, UUID targetId) {
+        return values.stream().filter(value -> value.getScope() == scope && java.util.Objects.equals(value.getTargetResourceId(), targetId)).findFirst().orElse(null);
+    }
+
+    private static String resolverDirective(DnsResolverConfiguration resolver, String indent, boolean dockerFallback) {
+        if (resolver == null) return dockerFallback ? indent + "resolver 127.0.0.11 ipv6=off valid=10s;\n" : "";
+        return indent + "# DNS Resolver：缓存 " + resolver.getValidSeconds() + " 秒。\n"
+            + indent + "resolver " + String.join(" ", resolver.getResolverAddresses()) + " valid=" + resolver.getValidSeconds() + "s ipv6=" + (resolver.isIpv6Enabled() ? "on" : "off") + ";\n"
+            + indent + "resolver_timeout " + resolver.getTimeoutMilliseconds() + "ms;\n";
     }
 
     private String header(String id, Instant now) {

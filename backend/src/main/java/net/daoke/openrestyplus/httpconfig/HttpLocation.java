@@ -41,6 +41,9 @@ public class HttpLocation {
     @Column(name = "rate_per_second", nullable = false) private int ratePerSecond;
     @Column(name = "rate_limit_burst", nullable = false) private int rateLimitBurst;
     @Column(name = "rate_limit_nodelay", nullable = false) private boolean rateLimitNodelay;
+    @Column(name = "dynamic_dns_enabled", nullable = false) private boolean dynamicDnsEnabled;
+    @Column(name = "dynamic_dns_host") private String dynamicDnsHost;
+    @Column(name = "dynamic_dns_port") private Integer dynamicDnsPort;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpLocation() { }
@@ -94,4 +97,8 @@ public class HttpLocation {
     public int getRatePerSecond() { return ratePerSecond; }
     public int getRateLimitBurst() { return rateLimitBurst; }
     public boolean isRateLimitNodelay() { return rateLimitNodelay; }
+    public boolean isDynamicDnsEnabled() { return dynamicDnsEnabled; }
+    public String getDynamicDnsHost() { return dynamicDnsHost; }
+    public Integer getDynamicDnsPort() { return dynamicDnsPort; }
+    public void applyDynamicDns(boolean enabled, String host, Integer port) { this.dynamicDnsEnabled=enabled; this.dynamicDnsHost=host; this.dynamicDnsPort=port; }
 }
