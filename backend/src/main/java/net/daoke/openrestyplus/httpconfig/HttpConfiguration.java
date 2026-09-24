@@ -29,7 +29,7 @@ public class HttpConfiguration {
     @Column(name="gzip_min_length", nullable=false) private String gzipMinLength="1k";
     @Column(name="gzip_comp_level", nullable=false) private int gzipCompLevel=2;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "response_headers", nullable = false, columnDefinition = "json")
-    private List<String> responseHeaders = List.of();
+    private List<String> responseHeaders = List.of("X-Frame-Options: SAMEORIGIN", "X-Content-Type-Options: nosniff", "Referrer-Policy: strict-origin-when-cross-origin", "Content-Security-Policy: default-src 'self'");
     protected HttpConfiguration() { }
     public HttpConfiguration(UUID centerId) { this.centerId = centerId; }
     public void apply(String rootPath, boolean hideVersion, List<String> responseHeaders, boolean sendfileEnabled, boolean tcpNopushEnabled, boolean tcpNodelayEnabled, int keepaliveTimeoutSeconds, String clientMaxBodySize, String clientHeaderBufferSize, String largeClientHeaderBuffers,int serverNamesHashBucketSize,boolean gzipEnabled,String gzipMinLength,int gzipCompLevel) { this.rootPath=rootPath; this.hideVersion=hideVersion; this.responseHeaders=List.copyOf(responseHeaders);this.sendfileEnabled=sendfileEnabled;this.tcpNopushEnabled=tcpNopushEnabled;this.tcpNodelayEnabled=tcpNodelayEnabled;this.keepaliveTimeoutSeconds=keepaliveTimeoutSeconds;this.clientMaxBodySize=clientMaxBodySize;this.clientHeaderBufferSize=clientHeaderBufferSize;this.largeClientHeaderBuffers=largeClientHeaderBuffers;this.serverNamesHashBucketSize=serverNamesHashBucketSize;this.gzipEnabled=gzipEnabled;this.gzipMinLength=gzipMinLength;this.gzipCompLevel=gzipCompLevel; }

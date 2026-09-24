@@ -321,7 +321,11 @@ public class NativeConfigurationRenderer {
             result.append("    # TLS 证书：").append(certificate.getName()).append("（").append(certificate.getCommonName()).append("）。\n")
                 .append("    ssl_certificate ").append(certificateStem).append(".crt;\n")
                 .append("    ssl_certificate_key ").append(certificateStem).append(".key;\n")
-                .append("    ssl_protocols TLSv1.2 TLSv1.3;\n");
+                .append("    # TLS 加固：仅允许 TLS 1.2/1.3，关闭会话票据并限制会话有效期。\n")
+                .append("    ssl_protocols TLSv1.2 TLSv1.3;\n")
+                .append("    ssl_session_tickets off;\n")
+                .append("    ssl_session_timeout 1h;\n")
+                .append("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n");
         }
         for (HttpLocation location : locations) {
             result.append("    include ").append(nodeRoot).append("/http/location/").append(stem)
