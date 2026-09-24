@@ -30,12 +30,6 @@ const tokenTheme = computed(() => {
 });
 
 let drawerObserver: MutationObserver | undefined;
-const toggleHelpAlert = (event: MouseEvent) => {
-  const target = event.target as HTMLElement | null;
-  const alert = target?.closest<HTMLElement>('.ops-page .ant-alert');
-  if (!alert || target?.closest('a,button,input,textarea,select,.ant-select')) return;
-  alert.classList.toggle('ops-help-expanded');
-};
 function installDrawerResizeHandles() {
   document.querySelectorAll<HTMLElement>('.ant-drawer-content-wrapper').forEach((wrapper) => {
     if (wrapper.dataset.resizable === 'true') return;
@@ -66,7 +60,9 @@ function installHelpHints() {
   document.querySelectorAll<HTMLElement>('.ops-page .ant-alert').forEach((alert) => {
     if (alert.dataset.helpReady === 'true') return;
     alert.dataset.helpReady = 'true';
-    alert.setAttribute('title', '点击查看说明');
+    const message = alert.textContent?.replace(/\s+/g, ' ').trim();
+    if (message) alert.dataset.help = message;
+    alert.setAttribute('aria-label', message || '帮助说明');
   });
 }
 onMounted(() => {
@@ -77,9 +73,8 @@ onMounted(() => {
     installHelpHints();
   });
   drawerObserver.observe(document.body, { childList: true, subtree: true });
-  document.addEventListener('click', toggleHelpAlert);
 });
-onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListener('click', toggleHelpAlert); });
+onBeforeUnmount(() => { drawerObserver?.disconnect(); });
 </script>
 
 <template>
@@ -95,11 +90,10 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListen
 .global-drawer-resize-handle::after { position: absolute; top: 50%; left: 2px; width: 4px; height: 42px; border-radius: 4px; background: var(--ant-color-border); content: ''; transform: translateY(-50%); opacity: .75; }
 .global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
 .global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
-.ops-page .ant-alert:not(.ops-help-expanded) { width: 30px; min-height: 30px; padding: 0; overflow: hidden; cursor: pointer; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
-.ops-page .ant-alert:not(.ops-help-expanded)::before { display: grid; width: 28px; height: 28px; place-items: center; content: 'ⓘ'; color: var(--ant-color-primary); font-size: 16px; font-weight: 600; }
-.ops-page .ant-alert:not(.ops-help-expanded) > * { display: none; }
-.ops-page .ant-alert:not(.ops-help-expanded):hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
-.ops-page .ant-alert.ops-help-expanded { max-width: 100%; margin: 10px 0 14px; cursor: pointer; border-radius: 8px; box-shadow: 0 4px 14px rgb(0 0 0 / 10%); }
-.ops-page .ant-alert.ops-help-expanded .ant-alert-message { font-weight: 600; }
-.ops-page .ant-alert.ops-help-expanded .ant-alert-description { line-height: 1.65; }
+.ops-page .ant-alert { position: relative; width: 30px; min-height: 30px; padding: 0; overflow: visible; cursor: help; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
+.ops-page .ant-alert::before { display: grid; width: 28px; height: 28px; place-items: center; content: 'ⓘ'; color: var(--ant-color-primary); font-size: 16px; font-weight: 600; }
+.ops-page .ant-alert > * { display: none; }
+.ops-page .ant-alert::after { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: max-content; max-width: min(420px, calc(100vw - 48px)); padding: 9px 12px; content: attr(data-help); pointer-events: none; color: var(--ant-color-text); font-size: 13px; font-weight: 400; line-height: 1.55; text-align: left; white-space: normal; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; background: var(--ant-color-bg-elevated); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; }
+.ops-page .ant-alert:hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
+.ops-page .ant-alert:hover::after, .ops-page .ant-alert:focus-visible::after { opacity: 1; transform: translateY(0); }
 </style>
