@@ -6,6 +6,7 @@ import net.daoke.openrestyplus.dns.DnsResolverConfigurationRepository;
 import net.daoke.openrestyplus.dns.DnsResolverScope;
 import net.daoke.openrestyplus.httpconfig.HttpLocation;
 import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
+import net.daoke.openrestyplus.httpconfig.HttpConfigurationRepository;
 import net.daoke.openrestyplus.httpconfig.HttpServer;
 import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
 import net.daoke.openrestyplus.httpconfig.HttpUpstream;
@@ -62,6 +63,7 @@ public class NativeConfigurationRenderer {
     private final StreamUpstreamRepository streamUpstreams;
     private final StreamServerRepository streamServers;
     private final DnsResolverConfigurationRepository dnsResolvers;
+    private final HttpConfigurationRepository httpConfigurations;
     private final Path renderRoot;
 
     public NativeConfigurationRenderer(CenterRepository centers,
@@ -73,6 +75,7 @@ public class NativeConfigurationRenderer {
                                        StreamUpstreamRepository streamUpstreams,
                                        StreamServerRepository streamServers,
                                        DnsResolverConfigurationRepository dnsResolvers,
+                                       HttpConfigurationRepository httpConfigurations,
                                        @Value("${OPENRESTY_RENDER_ROOT:/tmp/openresty-plus/rendered}") String renderRoot) {
         this.centers = centers;
         this.httpUpstreams = httpUpstreams;
@@ -83,6 +86,7 @@ public class NativeConfigurationRenderer {
         this.streamUpstreams = streamUpstreams;
         this.streamServers = streamServers;
         this.dnsResolvers = dnsResolvers;
+        this.httpConfigurations = httpConfigurations;
         this.renderRoot = Path.of(renderRoot).toAbsolutePath().normalize();
     }
 
@@ -104,6 +108,7 @@ public class NativeConfigurationRenderer {
         for (TlsCertificate certificate : tlsCertificates.findByCenterIdOrderByName(centerId)) certificateById.put(certificate.getId(), certificate);
         List<StreamServer> streamServerValues = streamServers.findByCenterIdOrderByListenPortAsc(centerId);
         List<DnsResolverConfiguration> resolverValues = dnsResolvers.findByCenterIdOrderByScopeAsc(centerId).stream().filter(DnsResolverConfiguration::isEnabled).toList();
+        var httpConfiguration = httpConfigurations.findById(centerId).orElse(null);
 
         for (HttpUpstream upstream : httpUpstreamById.values()) {
             requireName(upstream.getName(), "HTTP upstream name");
@@ -118,7 +123,7 @@ public class NativeConfigurationRenderer {
             List<HttpLocation> locations = httpLocations.findByServerIdOrderByPath(server.getId());
             for (HttpLocation location : locations) {
                 requireLocationPath(location.getPath());
-                if (!httpUpstreamById.containsKey(location.getUpstreamId())) {
+                if (location.getAction() == net.daoke.openrestyplus.httpconfig.LocationAction.PROXY && !httpUpstreamById.containsKey(location.getUpstreamId())) {
                     throw invalid("HTTP location " + location.getPath() + " references an upstream outside this center");
                 }
                 if (location.isRateLimitEnabled()) rateLimitedLocations.add(location);
@@ -150,7 +155,7 @@ public class NativeConfigurationRenderer {
         }
         files.put("nginx.conf", rootConfiguration(nodeRoot, now, rateLimitedLocations,
                 streamServerValues.stream().filter(StreamServer::isDynamicDnsEnabled).toList(),
-                resolver(resolverValues, DnsResolverScope.HTTP, null),
+                resolver(resolverValues, DnsResolverScope.HTTP, null), httpConfiguration,
                 resolver(resolverValues, DnsResolverScope.STREAM, null)));
         return new RenderedConfiguration(centerId, center.getCode(), now, nodeRoot + "/nginx.conf", files, warnings, checksum(files));
     }
@@ -189,7 +194,7 @@ public class NativeConfigurationRenderer {
 
     private String rootConfiguration(String nodeRoot, Instant now, List<HttpLocation> rateLimitedLocations,
                                      List<StreamServer> dynamicStreamServers,
-                                     DnsResolverConfiguration httpResolver,
+                                     DnsResolverConfiguration httpResolver, net.daoke.openrestyplus.httpconfig.HttpConfiguration httpConfiguration,
                                      DnsResolverConfiguration streamResolver) {
         StringBuilder rateZones = new StringBuilder();
         for (HttpLocation location : rateLimitedLocations) {
@@ -223,6 +228,9 @@ public class NativeConfigurationRenderer {
             + "events { worker_connections 1024; }\n\n"
             + "http {\n"
             + "    # 七层 HTTP 配置：上游、虚拟主机和接口配置分别独立存放。\n"
+            + rootDirective(httpConfiguration == null ? null : httpConfiguration.getRootPath(), "    ")
+            + versionDirective(httpConfiguration == null || httpConfiguration.isHideVersion(), "    ")
+            + responseHeaders(httpConfiguration == null ? List.of() : httpConfiguration.getResponseHeaders(), "    ")
             + resolverDirective(httpResolver, "    ", true)
             + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
             + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
@@ -287,6 +295,9 @@ public class NativeConfigurationRenderer {
             .append("    server_name ").append(server.getDomain()).append(";\n")
             .append("    access_log ").append(directivePath(server.getAccessLog())).append(" openresty_plus;\n")
             .append("    error_log ").append(directivePath(server.getErrorLog())).append(" warn;\n");
+        result.append(rootDirective(server.getRootPath(), "    "));
+        result.append(versionDirective(server.isHideVersion(), "    "));
+        result.append(responseHeaders(server.getResponseHeaders(), "    "));
         result.append(resolverDirective(resolver, "    ", false));
         if (server.isSslEnabled()) {
             String certificateStem = nodeRoot + "/certificates/" + certificate.getId();
@@ -311,12 +322,15 @@ public class NativeConfigurationRenderer {
             + "# service: " + server.getDomain() + "\n"
             + "# action: " + location.getPath() + "\n"
             + "# method: " + methods(location.getMethods()) + "\n"
-            + "# upstream: " + upstream.getName() + "\n"
+            + "# upstream: " + (upstream == null ? "不适用" : upstream.getName()) + "\n"
             + "location " + location.getPath() + " {\n"
             + resolverDirective(resolver, "    ", false)
             + "    access_by_lua_block { require(\"runtime\").enforce() }\n"
+            + rootDirective(location.getRootPath(), "    ")
+            + (location.getAliasPath() == null || location.getAliasPath().isBlank() ? "" : "    alias " + directivePath(location.getAliasPath()) + ";\n")
+            + responseHeaders(location.getResponseHeaders(), "    ")
             + rateLimit(location)
-            + dynamicDns(location, upstream)
+            + locationAction(location, upstream)
             + "    proxy_connect_timeout " + location.getProxyConnectTimeoutMs() + "ms;\n"
             + "    proxy_read_timeout " + location.getProxyReadTimeoutMs() + "ms;\n"
             + "    proxy_send_timeout " + location.getProxySendTimeoutMs() + "ms;\n"
@@ -326,6 +340,21 @@ public class NativeConfigurationRenderer {
             + "    proxy_set_header X-Forwarded-Proto $scheme;\n"
             + "}\n";
     }
+
+    private static String locationAction(HttpLocation location, HttpUpstream upstream) {
+        if (location.getAction() == net.daoke.openrestyplus.httpconfig.LocationAction.RETURN) {
+            String contentType = location.getReturnContentTypeMode() == net.daoke.openrestyplus.httpconfig.ReturnContentTypeMode.REQUEST ? "$http_content_type" : location.getReturnContentType();
+            String type = contentType == null || contentType.isBlank() ? "text/plain" : contentType;
+            String body = location.getReturnBody() == null ? "" : location.getReturnBody().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+            return "    default_type " + type + ";\n    return " + location.getReturnStatus() + " \"" + body + "\";\n";
+        }
+        if (location.getAction() == net.daoke.openrestyplus.httpconfig.LocationAction.STATIC) return "    try_files $uri =404;\n";
+        return dynamicDns(location, upstream);
+    }
+
+    private static String rootDirective(String value, String indent) { return value == null || value.isBlank() ? "" : indent + "root " + directivePath(value) + ";\n"; }
+    private static String versionDirective(boolean hidden, String indent) { return hidden ? indent + "server_tokens off;\n" + indent + "more_clear_headers Server;\n" : ""; }
+    private static String responseHeaders(List<String> headers, String indent) { StringBuilder result=new StringBuilder(); for(String header:headers){int split=header.indexOf(": ");if(split>0)result.append(indent).append("add_header ").append(header,0,split).append(" \"").append(header.substring(split+2).replace("\"","\\\"")).append("\" always;\n");}return result.toString(); }
 
     private static String rateZone(HttpLocation location) { return "openresty_plus_" + location.getId().toString().replace("-", ""); }
 

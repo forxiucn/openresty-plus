@@ -13,7 +13,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 import net.daoke.openrestyplus.policy.PolicyModeOrder;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "http_server", uniqueConstraints = @UniqueConstraint(
@@ -38,6 +40,9 @@ public class HttpServer {
     @Enumerated(jakarta.persistence.EnumType.STRING)
     @Column(name = "api_policy_mode_order", nullable = false, length = 24)
     private PolicyModeOrder apiPolicyModeOrder = PolicyModeOrder.BLACKLIST_FIRST;
+    @Column(name = "root_path", length = 512) private String rootPath;
+    @Column(name = "hide_version", nullable = false) private boolean hideVersion = true;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "response_headers", nullable = false, columnDefinition = "json") private List<String> responseHeaders = List.of();
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpServer() { }
@@ -78,4 +83,6 @@ public class HttpServer {
         this.ipPolicyModeOrder = ipPolicyModeOrder;
         this.apiPolicyModeOrder = apiPolicyModeOrder;
     }
+    public void applyDirectives(String rootPath, boolean hideVersion, List<String> responseHeaders) { this.rootPath=rootPath; this.hideVersion=hideVersion; this.responseHeaders=List.copyOf(responseHeaders); }
+    public String getRootPath(){ return rootPath; } public boolean isHideVersion(){ return hideVersion; } public List<String> getResponseHeaders(){ return responseHeaders; }
 }

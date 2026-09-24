@@ -176,6 +176,12 @@ public class HttpServerController {
                 "ipPolicyModeOrder", ipModeOrder, "apiPolicyModeOrder", apiModeOrder)));
         return ServerView.from(saved);
     }
+    @PutMapping("/{serverId}/directives")
+    public ServerView serverDirectives(@PathVariable UUID centerId,@PathVariable UUID serverId,@Valid @RequestBody ServerDirectivesRequest request) {
+        var server=requireServerEntity(centerId,serverId); HttpConfigurationController.validate(request.rootPath(),request.responseHeaders());
+        server.applyDirectives(request.rootPath(),request.hideVersion(),request.responseHeaders()); var saved=servers.save(server);
+        audit.success(centerId,"HTTP_SERVER_DIRECTIVES_UPDATED","HTTP_SERVER",serverId); return ServerView.from(saved);
+    }
     @PutMapping("/{serverId}/locations/{locationId}/policy-settings")
     public LocationView locationPolicySettings(@PathVariable UUID centerId, @PathVariable UUID serverId,
                                                @PathVariable UUID locationId,
@@ -188,6 +194,15 @@ public class HttpServerController {
         audit.success(centerId, "HTTP_LOCATION_POLICY_SETTINGS_UPDATED", "HTTP_LOCATION", locationId,
             Map.of("before", before, "after", Map.of("ipPolicyEnabled", request.ipPolicyEnabled(), "apiPolicyEnabled", request.apiPolicyEnabled())));
         return LocationView.from(saved);
+    }
+    @PutMapping("/{serverId}/locations/{locationId}/directives")
+    public LocationView locationDirectives(@PathVariable UUID centerId,@PathVariable UUID serverId,@PathVariable UUID locationId,@Valid @RequestBody LocationDirectivesRequest request){
+        requireServer(centerId,serverId);var location=requireLocation(serverId,locationId);HttpConfigurationController.validate(request.rootPath(),request.responseHeaders());HttpConfigurationController.validate(request.aliasPath(),List.of());
+        if(request.rootPath()!=null&&!request.rootPath().isBlank()&&request.aliasPath()!=null&&!request.aliasPath().isBlank())throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Location 的 root 与 alias 不能同时配置");
+        if(request.action()==LocationAction.PROXY&&location.getUpstreamId()==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"代理模式需要配置 Upstream");
+        if(request.action()==LocationAction.STATIC&&(request.rootPath()==null||request.rootPath().isBlank())&&(request.aliasPath()==null||request.aliasPath().isBlank()))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"静态文件模式需要 root 或 alias");
+        if(request.action()==LocationAction.RETURN&&request.returnStatus()==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"直接返回模式需要状态码");
+        location.applyDirectives(request.action(),request.rootPath(),request.aliasPath(),request.returnStatus(),request.returnBody(),request.returnContentTypeMode(),request.returnContentType(),request.responseHeaders());return LocationView.from(locations.save(location));
     }
     @PutMapping("/{serverId}/locations/{locationId}/dynamic-dns")
     public LocationView dynamicDns(@PathVariable UUID centerId,@PathVariable UUID serverId,@PathVariable UUID locationId,@Valid @RequestBody DynamicDnsRequest request){
@@ -254,7 +269,7 @@ public class HttpServerController {
         @Min(0) int headerLengthMax,
         @Min(0) long bodyLengthMin,
         @Min(0) long bodyLengthMax,
-        @NotNull UUID upstreamId,
+        UUID upstreamId,
         @Min(1) int proxyConnectTimeoutMs,
         @Min(1) int proxyReadTimeoutMs,
         @Min(1) int proxySendTimeoutMs,
@@ -278,11 +293,11 @@ public class HttpServerController {
 
     public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
                              String accessLog, String errorLog, boolean ipPolicyEnabled, boolean apiPolicyEnabled,
-                             PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder) {
+                             PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder, String rootPath, boolean hideVersion, List<String> responseHeaders) {
         static ServerView from(HttpServer server) {
             return new ServerView(server.getId(), server.getDomain(), server.getListenPort(), server.isSslEnabled(),
                 server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog(),
-                server.isIpPolicyEnabled(), server.isApiPolicyEnabled(), server.getIpPolicyModeOrder(), server.getApiPolicyModeOrder());
+                server.isIpPolicyEnabled(), server.isApiPolicyEnabled(), server.getIpPolicyModeOrder(), server.getApiPolicyModeOrder(), server.getRootPath(), server.isHideVersion(), server.getResponseHeaders());
         }
     }
 
@@ -292,7 +307,7 @@ public class HttpServerController {
                                int proxySendTimeoutMs, boolean rateLimitEnabled, int ratePerSecond,
                                int rateLimitBurst, boolean rateLimitNodelay, boolean dynamicDnsEnabled,
                                String dynamicDnsHost, Integer dynamicDnsPort, boolean ipPolicyEnabled,
-                               boolean apiPolicyEnabled) {
+                               boolean apiPolicyEnabled, LocationAction action, String rootPath, String aliasPath, Integer returnStatus, String returnBody, ReturnContentTypeMode returnContentTypeMode, String returnContentType, List<String> responseHeaders) {
         static LocationView from(HttpLocation location) {
             return new LocationView(location.getId(), location.getPath(), location.getMethods(),
                 location.getContentTypes(), location.getHeaderLengthMin(), location.getHeaderLengthMax(),
@@ -301,10 +316,12 @@ public class HttpServerController {
                 location.getProxySendTimeoutMs(), location.isRateLimitEnabled(), location.getRatePerSecond(),
                 location.getRateLimitBurst(), location.isRateLimitNodelay(), location.isDynamicDnsEnabled(),
                 location.getDynamicDnsHost(), location.getDynamicDnsPort(), location.isIpPolicyEnabled(),
-                location.isApiPolicyEnabled());
+                location.isApiPolicyEnabled(), location.getAction(), location.getRootPath(), location.getAliasPath(), location.getReturnStatus(), location.getReturnBody(), location.getReturnContentTypeMode(), location.getReturnContentType(), location.getResponseHeaders());
         }
     }
     public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
+    public record ServerDirectivesRequest(String rootPath,boolean hideVersion,List<String> responseHeaders){public ServerDirectivesRequest{responseHeaders=responseHeaders==null?List.of():List.copyOf(responseHeaders);}}
+    public record LocationDirectivesRequest(@NotNull LocationAction action,String rootPath,String aliasPath,@Min(100)@Max(599) Integer returnStatus,String returnBody,@NotNull ReturnContentTypeMode returnContentTypeMode,String returnContentType,List<String> responseHeaders){public LocationDirectivesRequest{responseHeaders=responseHeaders==null?List.of():List.copyOf(responseHeaders);}}
     public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled,
                                               PolicyModeOrder ipPolicyModeOrder,
                                               PolicyModeOrder apiPolicyModeOrder) { }

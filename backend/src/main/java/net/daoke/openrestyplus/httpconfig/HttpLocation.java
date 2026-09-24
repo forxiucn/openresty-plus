@@ -1,6 +1,7 @@
 package net.daoke.openrestyplus.httpconfig;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -46,6 +47,14 @@ public class HttpLocation {
     @Column(name = "dynamic_dns_port") private Integer dynamicDnsPort;
     @Column(name = "ip_policy_enabled", nullable = false) private boolean ipPolicyEnabled;
     @Column(name = "api_policy_enabled", nullable = false) private boolean apiPolicyEnabled;
+    @Enumerated(jakarta.persistence.EnumType.STRING) @Column(nullable = false, length = 16) private LocationAction action = LocationAction.PROXY;
+    @Column(name = "root_path", length = 512) private String rootPath;
+    @Column(name = "alias_path", length = 512) private String aliasPath;
+    @Column(name = "return_status") private Integer returnStatus;
+    @Column(name = "return_body", columnDefinition = "text") private String returnBody;
+    @Enumerated(jakarta.persistence.EnumType.STRING) @Column(name = "return_content_type_mode", nullable = false, length = 16) private ReturnContentTypeMode returnContentTypeMode = ReturnContentTypeMode.CUSTOM;
+    @Column(name = "return_content_type", length = 255) private String returnContentType;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "response_headers", nullable = false, columnDefinition = "json") private List<String> responseHeaders = List.of();
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpLocation() { }
@@ -109,4 +118,6 @@ public class HttpLocation {
         this.ipPolicyEnabled = ipPolicyEnabled;
         this.apiPolicyEnabled = apiPolicyEnabled;
     }
+    public void applyDirectives(LocationAction action, String rootPath, String aliasPath, Integer returnStatus, String returnBody, ReturnContentTypeMode typeMode, String contentType, List<String> headers) { this.action=action; this.rootPath=rootPath; this.aliasPath=aliasPath; this.returnStatus=returnStatus; this.returnBody=returnBody; this.returnContentTypeMode=typeMode; this.returnContentType=contentType; this.responseHeaders=List.copyOf(headers); }
+    public LocationAction getAction(){return action;} public String getRootPath(){return rootPath;} public String getAliasPath(){return aliasPath;} public Integer getReturnStatus(){return returnStatus;} public String getReturnBody(){return returnBody;} public ReturnContentTypeMode getReturnContentTypeMode(){return returnContentTypeMode;} public String getReturnContentType(){return returnContentType;} public List<String> getResponseHeaders(){return responseHeaders;}
 }

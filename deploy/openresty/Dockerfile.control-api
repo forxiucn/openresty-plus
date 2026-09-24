@@ -10,6 +10,7 @@ ARG LUA_RESTY_LRUCACHE_VERSION=v0.10
 ARG LUA_CJSON_VERSION=2.1.0.19
 ARG NDK_VERSION=v0.3.4
 ARG LUAJIT_VERSION=v2.1-20250826
+ARG HEADERS_MORE_VERSION=v0.39
 
 RUN apk add --no-cache build-base curl linux-headers openssl-dev pcre2-dev perl zlib-dev
 
@@ -22,6 +23,7 @@ RUN curl -fsSLO "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
  && curl -fsSLO "https://github.com/openresty/lua-resty-lrucache/archive/refs/tags/${LUA_RESTY_LRUCACHE_VERSION}.tar.gz" \
  && curl -fsSLO "https://github.com/openresty/lua-cjson/archive/refs/tags/${LUA_CJSON_VERSION}.tar.gz" \
  && curl -fsSLO "https://github.com/openresty/luajit2/archive/refs/tags/${LUAJIT_VERSION}.tar.gz" \
+ && curl -fsSLO "https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/${HEADERS_MORE_VERSION}.tar.gz" \
  && tar -xzf "nginx-${NGINX_VERSION}.tar.gz" \
  && tar -xzf "${NDK_VERSION}.tar.gz" \
  && tar -xzf "${LUA_NGINX_MODULE_VERSION}.tar.gz" \
@@ -29,7 +31,8 @@ RUN curl -fsSLO "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
  && tar -xzf "${LUA_RESTY_CORE_VERSION}.tar.gz" \
  && tar -xzf "${LUA_RESTY_LRUCACHE_VERSION}.tar.gz" \
  && tar -xzf "${LUA_CJSON_VERSION}.tar.gz" \
- && tar -xzf "${LUAJIT_VERSION}.tar.gz"
+ && tar -xzf "${LUAJIT_VERSION}.tar.gz" \
+ && tar -xzf "${HEADERS_MORE_VERSION}.tar.gz"
 
 WORKDIR /build/luajit2-${LUAJIT_VERSION#v}
 RUN make -j"$(getconf _NPROCESSORS_ONLN)" \
@@ -62,6 +65,7 @@ RUN ./configure \
       --add-module=/build/ngx_devel_kit-${NDK_VERSION#v} \
       --add-module=/build/lua-nginx-module-${LUA_NGINX_MODULE_VERSION#v} \
       --add-module=/build/stream-lua-nginx-module-${STREAM_LUA_MODULE_VERSION#v} \
+      --add-module=/build/headers-more-nginx-module-${HEADERS_MORE_VERSION#v} \
  && make -j"$(getconf _NPROCESSORS_ONLN)" \
  && make install
 
