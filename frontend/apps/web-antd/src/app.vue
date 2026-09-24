@@ -80,8 +80,10 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListen
 </template>
 
 <style>
-.global-drawer-resize-handle { position: absolute; z-index: 10; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; touch-action: none; }
-.global-drawer-resize-handle:hover { background: color-mix(in srgb, var(--ant-color-primary) 35%, transparent); }
+.global-drawer-resize-handle { position: absolute; z-index: 1100; top: 0; bottom: 0; left: 0; width: 12px; cursor: ew-resize; touch-action: none; border-left: 2px solid transparent; }
+.global-drawer-resize-handle::after { position: absolute; top: 50%; left: 2px; width: 4px; height: 42px; border-radius: 4px; background: var(--ant-color-border); content: ''; transform: translateY(-50%); opacity: .75; }
+.global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
+.global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
 .ops-page .ant-alert:not(.ops-help-expanded) { width: 28px; min-height: 28px; padding: 0; overflow: hidden; cursor: pointer; border-radius: 50%; border-color: var(--ant-color-primary-border); background: var(--ant-color-primary-bg); }
 .ops-page .ant-alert:not(.ops-help-expanded)::before { display: grid; width: 26px; height: 26px; place-items: center; content: '?'; color: var(--ant-color-primary); font-weight: 700; }
 .ops-page .ant-alert:not(.ops-help-expanded) > * { display: none; }
