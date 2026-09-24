@@ -25,6 +25,7 @@ type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: 
 type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
 type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; targets: HttpTarget[] };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number };
+type Resolver = { id: string; scope: 'HTTP' | 'STREAM'; resolverAddresses: string[]; validSeconds: number; timeoutMilliseconds: number; ipv6Enabled: boolean; enabled: boolean };
 
 const centers = ref<Center[]>([]);
 const selectedCenterId = ref<string>();
@@ -32,7 +33,9 @@ const activeProtocol = ref<'http' | 'stream'>('http');
 const loading = ref(false);
 const httpUpstreams = ref<HttpUpstream[]>([]);
 const streamUpstreams = ref<StreamUpstream[]>([]);
+const resolvers = ref<Resolver[]>([]);
 const drawerOpen = ref(false);
+const resolverDrawerOpen = ref(false);
 const editingId = ref<string>();
 const targetDrawerOpen = ref(false);
 const selectedHttpUpstream = ref<HttpUpstream>();
@@ -41,6 +44,9 @@ const freshTarget = () => ({ targetHost: '', targetPort: 8080, weight: 1, maxFai
 const targetForm = ref(freshTarget());
 const healthResults = ref<HealthResult[]>([]);
 const healthChecking = ref(false);
+const freshResolver = () => ({ resolverAddresses: ['127.0.0.11'], validSeconds: 30, timeoutMilliseconds: 3000, ipv6Enabled: false, enabled: true });
+const resolverForm = ref(freshResolver());
+const currentResolver = computed(() => resolvers.value.find((item) => item.scope === (activeProtocol.value === 'http' ? 'HTTP' : 'STREAM')));
 
 const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
 const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64 });
@@ -86,9 +92,10 @@ async function loadCenter(centerId: string) {
   selectedCenterId.value = centerId;
   loading.value = true;
   try {
-    [httpUpstreams.value, streamUpstreams.value] = await Promise.all([
+    [httpUpstreams.value, streamUpstreams.value, resolvers.value] = await Promise.all([
       request<HttpUpstream[]>(`/centers/${centerId}/http/upstreams`),
       request<StreamUpstream[]>(`/centers/${centerId}/stream/upstreams`),
+      request<Resolver[]>(`/centers/${centerId}/dns-resolvers`),
     ]);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载 Upstream 失败');
@@ -201,6 +208,42 @@ function switchProtocol(key: string) {
   activeProtocol.value = key as 'http' | 'stream';
 }
 
+function openResolverDrawer() {
+  const value = currentResolver.value;
+  resolverForm.value = value ? {
+    resolverAddresses: [...value.resolverAddresses],
+    validSeconds: value.validSeconds,
+    timeoutMilliseconds: value.timeoutMilliseconds,
+    ipv6Enabled: value.ipv6Enabled,
+    enabled: value.enabled,
+  } : freshResolver();
+  resolverDrawerOpen.value = true;
+}
+
+async function saveResolver() {
+  if (!selectedCenterId.value || resolverForm.value.resolverAddresses.length === 0) {
+    message.warning('请至少填写一个 DNS 服务器地址');
+    return;
+  }
+  const value = currentResolver.value;
+  const payload = {
+    ...resolverForm.value,
+    scope: activeProtocol.value === 'http' ? 'HTTP' : 'STREAM',
+    targetResourceId: null,
+  };
+  try {
+    await request(`/centers/${selectedCenterId.value}/dns-resolvers${value ? `/${value.id}` : ''}`, {
+      method: value ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    resolverDrawerOpen.value = false;
+    await loadCenter(selectedCenterId.value);
+    message.success(`${activeProtocol.value === 'http' ? 'HTTP' : 'Stream'} DNS Resolver 已保存`);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '保存 DNS Resolver 失败');
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -231,6 +274,34 @@ onMounted(load);
         <a-tab-pane key="http" tab="HTTP Upstream" />
         <a-tab-pane key="stream" tab="Stream Upstream" />
       </a-tabs>
+      <div class="mb-5 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="font-medium">{{ activeProtocol === 'http' ? 'HTTP DNS Resolver' : 'Stream DNS Resolver' }}</div>
+            <div class="mt-1 text-sm text-gray-500">
+              Upstream 后端启用 resolve 后，使用此协议全局 Resolver 解析域名；Resolver 指令生成在对应的 HTTP 或 Stream 上下文中。
+            </div>
+          </div>
+          <a-button :disabled="!selectedCenterId" @click="openResolverDrawer">
+            {{ currentResolver ? '编辑 DNS Resolver' : '配置 DNS Resolver' }}
+          </a-button>
+        </div>
+        <div v-if="currentResolver" class="mt-4 flex flex-wrap items-center gap-2">
+          <span class="text-sm text-gray-500">DNS 服务器地址：</span>
+          <a-tag v-for="address in currentResolver.resolverAddresses" :key="address" color="blue">{{ address }}</a-tag>
+          <a-tag>缓存 {{ currentResolver.validSeconds }} 秒</a-tag>
+          <a-tag>超时 {{ currentResolver.timeoutMilliseconds }} 毫秒</a-tag>
+          <a-tag :color="currentResolver.ipv6Enabled ? 'cyan' : 'default'">IPv6 {{ currentResolver.ipv6Enabled ? '启用' : '关闭' }}</a-tag>
+          <a-tag :color="currentResolver.enabled ? 'green' : 'default'">{{ currentResolver.enabled ? '已启用' : '已停用' }}</a-tag>
+        </div>
+        <a-alert
+          v-else
+          class="mt-4"
+          message="尚未配置 DNS 服务器地址；启用后端 resolve 前，请先配置可从 OpenResty 节点访问的 DNS 服务器。"
+          show-icon
+          type="warning"
+        />
+      </div>
       <div class="mb-4 flex items-center justify-between">
         <div>
           <div class="text-base font-medium">{{ selectedCenter ? `${selectedCenter.name} 的${title}` : title }}</div>
@@ -266,6 +337,49 @@ onMounted(load);
       </a-table>
       <a-empty v-else description="当前中心还没有此类 Upstream，可从右上角新建。" />
     </a-card>
+
+    <a-drawer
+      v-model:open="resolverDrawerOpen"
+      :title="`${activeProtocol === 'http' ? 'HTTP' : 'Stream'} DNS Resolver 配置`"
+      :width="560"
+    >
+      <a-alert
+        class="mb-4"
+        message="这里配置的 DNS 服务器供当前协议下启用了 resolve 的 Upstream 后端使用。请填写 OpenResty 节点能够访问的地址。"
+        show-icon
+        type="info"
+      />
+      <a-form layout="vertical">
+        <a-form-item
+          extra="支持多个 IPv4 或 IPv6 地址；输入一个地址后按回车，可继续添加。"
+          label="DNS 服务器地址"
+          required
+        >
+          <a-select
+            v-model:value="resolverForm.resolverAddresses"
+            mode="tags"
+            placeholder="例如 127.0.0.11、10.0.0.53 或 [2001:db8::53]"
+            :token-separators="[',', ' ']"
+          />
+        </a-form-item>
+        <a-form-item label="缓存有效期（秒）" extra="缓存过期后，带 resolve 的后端域名会重新解析。">
+          <a-input-number v-model:value="resolverForm.validSeconds" class="w-full" :min="1" :max="3600" />
+        </a-form-item>
+        <a-form-item label="解析超时（毫秒）">
+          <a-input-number v-model:value="resolverForm.timeoutMilliseconds" class="w-full" :min="100" :max="60000" />
+        </a-form-item>
+        <a-form-item>
+          <a-checkbox v-model:checked="resolverForm.ipv6Enabled">启用 IPv6 解析</a-checkbox>
+          <a-checkbox v-model:checked="resolverForm.enabled" class="ml-4">启用 Resolver</a-checkbox>
+        </a-form-item>
+      </a-form>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <a-button @click="resolverDrawerOpen = false">取消</a-button>
+          <a-button type="primary" @click="saveResolver">保存 DNS Resolver</a-button>
+        </div>
+      </template>
+    </a-drawer>
 
     <a-drawer v-model:open="drawerOpen" :title="editingId ? `编辑${title}` : `新增${title}`" :width="500">
       <a-form layout="vertical">
