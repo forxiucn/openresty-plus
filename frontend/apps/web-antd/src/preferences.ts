@@ -21,6 +21,9 @@ export const overridesPreferences = defineOverridesPreferences({
     defaultHomePath: '/openresty/centers',
     name: import.meta.env.VITE_APP_TITLE,
   },
+  theme: {
+    mode: 'auto',
+  },
 });
 
 export const preferencesExtension =
