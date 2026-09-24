@@ -5,3 +5,5 @@ backend/target/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+runtime/native-config/*
+!runtime/native-config/.gitkeep
