@@ -80,7 +80,7 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListen
 </template>
 
 <style>
-.global-drawer-resize-handle { position: absolute; z-index: 1100; top: 0; bottom: 0; left: 0; width: 12px; cursor: ew-resize; touch-action: none; border-left: 2px solid transparent; }
+.global-drawer-resize-handle { position: absolute; z-index: 1100; top: 0; bottom: 0; left: 0; width: 12px; cursor: ew-resize; touch-action: none; pointer-events: auto; border-left: 2px solid transparent; }
 .global-drawer-resize-handle::after { position: absolute; top: 50%; left: 2px; width: 4px; height: 42px; border-radius: 4px; background: var(--ant-color-border); content: ''; transform: translateY(-50%); opacity: .75; }
 .global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
 .global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
