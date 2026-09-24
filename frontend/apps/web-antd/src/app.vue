@@ -30,6 +30,12 @@ const tokenTheme = computed(() => {
 });
 
 let drawerObserver: MutationObserver | undefined;
+const toggleHelpAlert = (event: MouseEvent) => {
+  const target = event.target as HTMLElement | null;
+  const alert = target?.closest<HTMLElement>('.ops-page .ant-alert');
+  if (!alert || target?.closest('a,button,input,textarea,select,.ant-select')) return;
+  alert.classList.toggle('ops-help-expanded');
+};
 function installDrawerResizeHandles() {
   document.querySelectorAll<HTMLElement>('.ant-drawer-content-wrapper').forEach((wrapper) => {
     if (wrapper.dataset.resizable === 'true') return;
@@ -60,8 +66,9 @@ onMounted(() => {
   installDrawerResizeHandles();
   drawerObserver = new MutationObserver(installDrawerResizeHandles);
   drawerObserver.observe(document.body, { childList: true, subtree: true });
+  document.addEventListener('click', toggleHelpAlert);
 });
-onBeforeUnmount(() => drawerObserver?.disconnect());
+onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListener('click', toggleHelpAlert); });
 </script>
 
 <template>
@@ -75,4 +82,8 @@ onBeforeUnmount(() => drawerObserver?.disconnect());
 <style>
 .global-drawer-resize-handle { position: absolute; z-index: 10; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; touch-action: none; }
 .global-drawer-resize-handle:hover { background: color-mix(in srgb, var(--ant-color-primary) 35%, transparent); }
+.ops-page .ant-alert:not(.ops-help-expanded) { width: 28px; min-height: 28px; padding: 0; overflow: hidden; cursor: pointer; border-radius: 50%; border-color: var(--ant-color-primary-border); background: var(--ant-color-primary-bg); }
+.ops-page .ant-alert:not(.ops-help-expanded)::before { display: grid; width: 26px; height: 26px; place-items: center; content: '?'; color: var(--ant-color-primary); font-weight: 700; }
+.ops-page .ant-alert:not(.ops-help-expanded) > * { display: none; }
+.ops-page .ant-alert.ops-help-expanded { cursor: pointer; }
 </style>
