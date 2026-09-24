@@ -15,6 +15,7 @@ import {
   Tag as ATag,
   message,
 } from 'ant-design-vue';
+import MetricGrid from '#/components/operations/MetricGrid.vue';
 
 type Center = { id: string; code: string; name: string; enabled: boolean };
 type RuntimeVersion = {
@@ -54,6 +55,7 @@ const summary = computed(() => ({
   ipPolicies: current.value?.content.ipPolicies?.length ?? 0,
   apiPolicies: current.value?.content.apiPolicies?.length ?? 0,
 }));
+const reportMetrics = computed(() => [{ label: '当前版本', value: current.value ? `v${current.value.versionNo}` : '未发布', hint: current.value ? formatTime(current.value.createdAt) : '等待首次发布', tone: 'blue' }, { label: '历史版本', value: versions.value.length, suffix: '个', hint: `${versions.value.filter((item) => item.state === 'ROLLED_BACK').length} 个回滚版本`, tone: 'purple' }, { label: '审计事件', value: auditEvents.value.length, suffix: '条', hint: `${auditEvents.value.filter((item) => item.result !== 'SUCCESS').length} 条失败`, tone: 'cyan' }, { label: '重载任务', value: reloadTasks.value.length, suffix: '次', hint: reloadTasks.value[0] ? reloadStateLabel(reloadTasks.value[0].status) : '暂无执行记录', tone: reloadTasks.value[0]?.status === 'SUCCESS' ? 'green' : 'orange' }]);
 const versionColumns = [
   { dataIndex: 'versionNo', key: 'versionNo', title: '版本' },
   { dataIndex: 'state', key: 'state', title: '状态' },
@@ -198,7 +200,7 @@ onMounted(loadCenters);
 </script>
 
 <template>
-  <div class="p-5">
+  <div class="ops-page">
     <a-card :bordered="false" title="运行配置版本与操作审计">
       <a-alert class="mb-4" show-icon type="info" message="发布会将当前中心的 HTTP 配置和策略固化为 MySQL 不可变快照。Lua 工作进程可按版本读取快照；监听端口等原生配置由 Control API 触发 reload。" />
       <div class="flex flex-wrap items-center gap-3">
@@ -209,7 +211,9 @@ onMounted(loadCenters);
       </div>
     </a-card>
 
-    <a-row class="mt-5" :gutter="16">
+    <metric-grid :metrics="reportMetrics" />
+
+    <a-row :gutter="[24,24]">
       <a-col :lg="10" :xs="24">
         <a-card :bordered="false" :loading="loading" :title="selectedCenter ? `${selectedCenter.name} 的当前快照` : '当前快照'">
           <template v-if="current">

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 import { Alert as AAlert, Button as AButton, Card as ACard, Checkbox as ACheckbox, Col as ACol, Divider as ADivider, Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Row as ARow, Select as ASelect, Space as ASpace, Table as ATable, Tag as ATag, message } from 'ant-design-vue';
+import MetricGrid from '#/components/operations/MetricGrid.vue';
 type Center={id:string;code:string;name:string}; type DictionaryOption={value:string;label:string}; type Upstream={id:string;name:string;keepaliveConnections:number}; type Certificate={id:string;name:string;commonName:string;enabled:boolean}; type HttpServer={id:string;domain:string;listenPort:number;sslEnabled:boolean;certificateId?:string;upstreamId?:string;accessLog?:string;errorLog?:string}; type HttpLocation={id:string;path:string;methods:string[];contentTypes:string[];headerLengthMin:number;headerLengthMax:number;bodyLengthMin:number;bodyLengthMax:number;upstreamId:string;proxyConnectTimeoutMs:number;proxyReadTimeoutMs:number;proxySendTimeoutMs:number;rateLimitEnabled:boolean;ratePerSecond:number;rateLimitBurst:number;rateLimitNodelay:boolean;dynamicDnsEnabled:boolean;dynamicDnsHost?:string;dynamicDnsPort?:number};
 const centers=ref<Center[]>([]), upstreams=ref<Upstream[]>([]), servers=ref<HttpServer[]>([]), locations=ref<HttpLocation[]>([]), certificates=ref<Certificate[]>([]); const selectedCenterId=ref<string>(), selectedServerId=ref<string>(), loading=ref(false);
 const upstreamOpen=ref(false),serverOpen=ref(false),locationOpen=ref(false),certificateOpen=ref(false); const editingUpstreamId=ref<string>(),editingServerId=ref<string>(),editingLocationId=ref<string>(),editingCertificateId=ref<string>();
@@ -8,6 +9,7 @@ const freshUpstream=()=>({name:'',keepaliveConnections:32}); const freshServer=(
 const upstreamForm=ref(freshUpstream()),serverForm=ref(freshServer()),certificateForm=ref(freshCertificate()),locationForm=ref(freshLocation());
 const contentTypeOptions=ref<DictionaryOption[]>([]); const methodOptions=ref<DictionaryOption[]>([]);
 const selectedCenter=computed(()=>centers.value.find(v=>v.id===selectedCenterId.value)); const selectedServer=computed(()=>servers.value.find(v=>v.id===selectedServerId.value)); const upstreamOptions=computed(()=>upstreams.value.map(v=>({value:v.id,label:v.name}))); const certificateOptions=computed(()=>certificates.value.filter(v=>v.enabled).map(v=>({value:v.id,label:`${v.name}（${v.commonName}）`}))); const upstreamName=(id?:string)=>upstreams.value.find(v=>v.id===id)?.name||'未绑定'; const hasCenter=computed(()=>Boolean(selectedCenterId.value)); const hasServer=computed(()=>Boolean(selectedServerId.value));
+const reportMetrics=computed(()=>[{label:'HTTP Server',value:servers.value.length,suffix:'个',hint:`${new Set(servers.value.map(v=>v.domain)).size} 个域名`,tone:'blue'},{label:'当前 Location',value:locations.value.length,suffix:'个',hint:selectedServer.value?`${selectedServer.value.domain}:${selectedServer.value.listenPort}`:'请选择 Server',tone:'purple'},{label:'HTTP Upstream',value:upstreams.value.length,suffix:'组',hint:'可用转发目标',tone:'green'},{label:'TLS Server',value:servers.value.filter(v=>v.sslEnabled).length,suffix:'个',hint:`${certificates.value.filter(v=>v.enabled).length} 张可用证书`,tone:'cyan'}]);
 const serverColumns=[{dataIndex:'domain',key:'domain',title:'域名'},{dataIndex:'listenPort',key:'listenPort',title:'端口'},{dataIndex:'sslEnabled',key:'sslEnabled',title:'TLS'},{dataIndex:'upstreamId',key:'upstreamId',title:'默认 Upstream'},{key:'action',title:'操作',width:200}]; const upstreamColumns=[{dataIndex:'name',key:'name',title:'服务标识'},{dataIndex:'keepaliveConnections',key:'keepaliveConnections',title:'Keepalive 连接数'},{key:'action',title:'操作',width:130}]; const locationColumns=[{dataIndex:'path',key:'path',title:'匹配路径'},{dataIndex:'methods',key:'methods',title:'请求方法'},{dataIndex:'contentTypes',key:'contentTypes',title:'Content-Type'},{dataIndex:'upstreamId',key:'upstreamId',title:'转发 Upstream'},{key:'condition',title:'长度条件'},{key:'action',title:'操作',width:130}];
 async function request<T>(path:string,options?:RequestInit):Promise<T>{const r=await fetch(`/api${path}`,{...options,headers:{'Content-Type':'application/json',...(options?.headers??{})}});if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error(b.detail||b.message||'请求失败');}return r.status===204?(undefined as T):r.json() as Promise<T>}
 async function loadCenters(){loading.value=true;try{centers.value=await request<Center[]>('/centers');if(!selectedCenterId.value&&centers.value[0])await selectCenter(centers.value[0].id)}catch(e){message.error(e instanceof Error?e.message:'加载中心失败')}finally{loading.value=false}}
@@ -24,7 +26,7 @@ async function remove(path:string,title:string){try{await request(path,{method:'
 onMounted(()=>{loadCenters();loadDictionaries()});
 </script>
 <template>
-  <div class="http-config-page p-5">
+  <div class="http-config-page ops-page">
     <a-card :bordered="false" title="HTTP 配置管理">
       <a-alert class="mb-4" type="info" show-icon message="按 Upstream、Server、Location 的顺序维护配置。选择 Server 后即可管理其路由。" />
       <a-form layout="inline">
@@ -35,7 +37,9 @@ onMounted(()=>{loadCenters();loadDictionaries()});
       </a-form>
     </a-card>
 
-    <a-row class="mt-5" :gutter="16">
+    <metric-grid :metrics="reportMetrics" />
+
+    <a-row :gutter="[24,24]">
       <a-col :lg="10" :xs="24">
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的 Upstream` : 'HTTP Upstream'">
           <template #extra><a-button type="primary" :disabled="!hasCenter" @click="openUpstream()">新增 Upstream</a-button></template>

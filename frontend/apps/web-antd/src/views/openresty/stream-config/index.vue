@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 import { Alert as AAlert, Button as AButton, Card as ACard, Checkbox as ACheckbox, Col as ACol, Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Row as ARow, Select as ASelect, Table as ATable, Tag as ATag, message } from 'ant-design-vue';
+import MetricGrid from '#/components/operations/MetricGrid.vue';
 
 type Center = { id: string; code: string; name: string };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number };
@@ -27,6 +28,7 @@ const upstreamName = (id: string) => upstreams.value.find((item) => item.id === 
 const protocolLabel = (protocol: 'TCP' | 'UDP') => protocol === 'TCP' ? 'TCP（传输控制协议）' : 'UDP（用户数据报协议）';
 const upstreamColumns = [{ dataIndex: 'name', key: 'name', title: '服务标识' }, { dataIndex: 'targetHost', key: 'targetHost', title: '目标地址' }, { dataIndex: 'targetPort', key: 'targetPort', title: '目标端口', width: 105 }, { key: 'action', title: '操作', width: 132 }];
 const serverColumns = [{ dataIndex: 'serviceName', key: 'serviceName', title: '服务名称' }, { dataIndex: 'listenPort', key: 'listenPort', title: '监听端口', width: 105 }, { dataIndex: 'protocol', key: 'protocol', title: '协议', width: 160 }, { dataIndex: 'upstreamId', key: 'upstreamId', title: '转发目标' }, { key: 'action', title: '操作', width: 132 }];
+const reportMetrics = computed(() => [{ label: '监听服务', value: servers.value.length, suffix: '个', hint: `${new Set(servers.value.map((item) => item.listenPort)).size} 个端口`, tone: 'blue' }, { label: 'TCP 服务', value: servers.value.filter((item) => item.protocol === 'TCP').length, suffix: '个', hint: '面向连接代理', tone: 'cyan' }, { label: 'UDP 服务', value: servers.value.filter((item) => item.protocol === 'UDP').length, suffix: '个', hint: '无连接代理', tone: 'purple' }, { label: 'Stream Upstream', value: upstreams.value.length, suffix: '组', hint: `${servers.value.filter((item) => item.dynamicDnsEnabled).length} 个动态解析服务`, tone: 'green' }]);
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) } });
@@ -66,7 +68,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="p-5">
+  <div class="ops-page">
     <a-card :bordered="false" title="四层 Stream 配置">
       <a-alert class="mb-4" show-icon type="info" message="先配置转发目标，再创建监听服务" description="Upstream 定义 TCP/UDP 后端地址；Server 定义协议和监听端口。保存后发布运行时快照；新增、修改或删除监听端口后，请在“版本与审计”执行原生配置重载。" />
       <a-form layout="inline">
@@ -74,7 +76,8 @@ onMounted(load);
         <a-form-item v-if="selectedCenter"><span class="text-gray-500">当前中心：{{ selectedCenter.name }}，{{ upstreams.length }} 个转发目标，{{ servers.length }} 个监听服务</span></a-form-item>
       </a-form>
     </a-card>
-    <a-row class="mt-5" :gutter="16">
+    <metric-grid :metrics="reportMetrics" />
+    <a-row :gutter="[24,24]">
       <a-col :lg="11" :xs="24">
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的转发目标` : '转发目标'">
           <template #extra><a-button type="primary" :disabled="!selectedCenterId" @click="openUpstream()">新增 Upstream</a-button></template>

@@ -1,0 +1,24 @@
+.ops-page { padding: 24px; }
+.ops-page > * + * { margin-top: 24px; }
+.ops-page .ant-card { border-radius: 10px; }
+.ops-page .ant-card-body { padding: 20px; }
+.ops-page .ant-table-wrapper { margin-top: 4px; }
+.ops-page .ant-space { row-gap: 8px !important; }
+.ops-section-grid { display: grid; gap: 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ops-metric-grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--metric-columns), minmax(0, 1fr)); }
+.ops-metric { position: relative; min-height: 112px; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 16px 18px; background: hsl(var(--card)); }
+.ops-metric::before { position: absolute; top: 0; left: 0; width: 4px; height: 100%; content: ''; background: #1677ff; }
+.ops-metric[data-tone='cyan']::before { background: #13c2c2; }
+.ops-metric[data-tone='green']::before { background: #52c41a; }
+.ops-metric[data-tone='orange']::before { background: #fa8c16; }
+.ops-metric[data-tone='purple']::before { background: #722ed1; }
+.ops-metric[data-tone='red']::before { background: #ff4d4f; }
+.ops-metric__label { color: hsl(var(--muted-foreground)); font-size: 13px; }
+.ops-metric__value { margin-top: 8px; font-size: 28px; font-weight: 650; line-height: 1; letter-spacing: -.02em; }
+.ops-metric__value span { margin-left: 4px; color: hsl(var(--muted-foreground)); font-size: 13px; font-weight: 400; }
+.ops-metric__hint { margin-top: 10px; overflow: hidden; color: hsl(var(--muted-foreground)); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ops-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.ops-subtle-panel { border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 16px; background: hsl(var(--muted) / .25); }
+@media (max-width: 1100px) { .ops-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media (max-width: 768px) { .ops-page { padding: 16px; } .ops-page > * + * { margin-top: 16px; } .ops-section-grid, .ops-metric-grid { grid-template-columns: 1fr !important; } }
+

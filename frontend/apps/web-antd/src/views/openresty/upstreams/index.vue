@@ -19,6 +19,7 @@ import {
   Tag as ATag,
   message,
 } from 'ant-design-vue';
+import MetricGrid from '#/components/operations/MetricGrid.vue';
 
 type Center = { id: string; code: string; name: string };
 type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
@@ -54,6 +55,17 @@ const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof
 const currentList = computed(() => activeProtocol.value === 'http' ? httpUpstreams.value : streamUpstreams.value);
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const title = computed(() => activeProtocol.value === 'http' ? 'HTTP Upstream' : 'Stream Upstream');
+const reportMetrics = computed(() => activeProtocol.value === 'http' ? [
+  { label: 'HTTP Upstream', value: httpUpstreams.value.length, suffix: '组', hint: '七层转发目标', tone: 'blue' },
+  { label: '有效后端实例', value: httpUpstreams.value.reduce((sum, item) => sum + (item.targets?.filter((target) => target.enabled).length || 0), 0), suffix: '个', hint: '参与负载均衡', tone: 'green' },
+  { label: '动态解析后端', value: httpUpstreams.value.reduce((sum, item) => sum + (item.targets?.filter((target) => target.resolveEnabled).length || 0), 0), suffix: '个', hint: '已启用 resolve', tone: 'cyan' },
+  { label: '主动健康检查', value: httpUpstreams.value.filter((item) => item.healthCheckEnabled).length, suffix: '组', hint: '可立即执行探测', tone: 'purple' },
+] : [
+  { label: 'Stream Upstream', value: streamUpstreams.value.length, suffix: '组', hint: '四层转发目标', tone: 'blue' },
+  { label: '动态解析目标', value: streamUpstreams.value.filter((item) => item.resolveEnabled).length, suffix: '个', hint: '已启用 resolve', tone: 'cyan' },
+  { label: '共享内存总量', value: streamUpstreams.value.reduce((sum, item) => sum + item.zoneSizeKilobytes, 0), suffix: 'KB', hint: 'Upstream zone', tone: 'purple' },
+  { label: 'DNS Resolver', value: currentResolver.value?.resolverAddresses.length || 0, suffix: '个地址', hint: currentResolver.value?.enabled ? '当前已启用' : '当前未启用', tone: currentResolver.value?.enabled ? 'green' : 'orange' },
+]);
 const targetColumns = [
   { dataIndex: 'targetHost', key: 'targetHost', title: '地址' },
   { dataIndex: 'targetPort', key: 'targetPort', title: '端口', width: 86 },
@@ -248,7 +260,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="p-5">
+  <div class="ops-page">
     <a-card :bordered="false" title="Upstream 配置">
       <a-alert
         class="mb-4"
@@ -269,7 +281,9 @@ onMounted(load);
       </a-form>
     </a-card>
 
-    <a-card class="mt-5" :bordered="false">
+    <metric-grid :metrics="reportMetrics" />
+
+    <a-card :bordered="false">
       <a-tabs :active-key="activeProtocol" @change="switchProtocol">
         <a-tab-pane key="http" tab="HTTP Upstream" />
         <a-tab-pane key="stream" tab="Stream Upstream" />
