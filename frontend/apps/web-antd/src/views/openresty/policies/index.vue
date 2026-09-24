@@ -24,6 +24,7 @@ import {
   message,
 } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
 type HttpServer = { id: string; domain: string; listenPort: number; ipPolicyEnabled: boolean; apiPolicyEnabled: boolean };
@@ -41,6 +42,8 @@ const locations = ref<(HttpLocation & { serverId: string; label: string })[]>([]
 const streamServers = ref<StreamServer[]>([]);
 const ipPolicies = ref<IpPolicy[]>([]);
 const apiPolicies = ref<ApiPolicy[]>([]);
+const serverRows=ref<HttpServer[]>([]),locationRows=ref<(HttpLocation&{serverId:string;label:string})[]>([]),streamRows=ref<StreamServer[]>([]),ipRows=ref<IpPolicy[]>([]),apiRows=ref<ApiPolicy[]>([]);
+const serverPager=useServerPagination(),locationPager=useServerPagination(),streamPager=useServerPagination(),ipPager=useServerPagination(),apiPager=useServerPagination();
 const selectedCenterId = ref<string>();
 const loading = ref(false);
 const ipDrawerOpen = ref(false);
@@ -138,8 +141,17 @@ async function loadCenters() {
   finally { loading.value = false; }
 }
 
+async function loadPolicyPage(kind:'server'|'location'|'stream'|'ip'|'api'){
+  if(!selectedCenterId.value)return;const pager={server:serverPager,location:locationPager,stream:streamPager,ip:ipPager,api:apiPager}[kind];
+  const path={server:'http/servers/paged',location:'http/servers/locations/paged',stream:'stream/servers/paged',ip:'ip-policies/paged',api:'api-policies/paged'}[kind];
+  const result=await request<PageResult<any>>(`/centers/${selectedCenterId.value}/${path}?${pager.query()}`);const items=pager.apply(result);
+  if(kind==='server')serverRows.value=items;else if(kind==='location')locationRows.value=items;else if(kind==='stream')streamRows.value=items;else if(kind==='ip')ipRows.value=items;else apiRows.value=items;
+}
+async function changePolicyPage(kind:'server'|'location'|'stream'|'ip'|'api',p:any){const pager={server:serverPager,location:locationPager,stream:streamPager,ip:ipPager,api:apiPager}[kind];pager.change(p);await loadPolicyPage(kind)}
+
 async function selectCenter(centerId: string) {
   selectedCenterId.value = centerId;
+  [serverPager,locationPager,streamPager,ipPager,apiPager].forEach(p=>p.reset());
   loading.value = true;
   try {
     const [loadedServers, loadedStreamServers, loadedIpPolicies, loadedApiPolicies] = await Promise.all([
@@ -157,6 +169,7 @@ async function selectCenter(centerId: string) {
       return values.map((location) => ({ ...location, serverId: server.id, label: `${server.domain}:${server.listenPort}${location.path}` }));
     }));
     locations.value = groups.flat();
+    await Promise.all(['server','location','stream','ip','api'].map(kind=>loadPolicyPage(kind as any)));
   } catch (error) { message.error(error instanceof Error ? error.message : '加载策略失败'); }
   finally { loading.value = false; }
 }
@@ -268,7 +281,7 @@ onMounted(loadCenters);
       <a-alert class="mb-4" show-icon type="warning" message="策略需要同时满足“目标开关已开启、策略自身已启用、已发布运行版本”才会生效。HTTP API 策略还要求域名端口和 Location 两级开关均开启。" />
       <a-tabs>
         <a-tab-pane key="http-server" tab="域名与端口">
-          <a-table :columns="httpTargetColumns" :data-source="servers" :pagination="false" row-key="id" size="small">
+          <a-table :columns="httpTargetColumns" :data-source="serverRows" :pagination="serverPager.table.value" @change="(p:any)=>changePolicyPage('server',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'"><span class="font-medium">{{ record.domain }}</span><span class="ml-1 text-gray-500">:{{ record.listenPort }}</span></template>
               <template v-else-if="column.key === 'ip'"><a-switch :checked="record.ipPolicyEnabled" :disabled="isSavingTarget('server', record.id)" :loading="savingSetting === `server-${record.id}-ipPolicyEnabled`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateHttpServerSetting(record, 'ipPolicyEnabled', checked)" /></template>
@@ -277,7 +290,7 @@ onMounted(loadCenters);
           </a-table>
         </a-tab-pane>
         <a-tab-pane key="location" tab="Location / API">
-          <a-table :columns="locationTargetColumns" :data-source="locations" :pagination="false" row-key="id" size="small">
+          <a-table :columns="locationTargetColumns" :data-source="locationRows" :pagination="locationPager.table.value" @change="(p:any)=>changePolicyPage('location',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'ip'"><a-switch :checked="record.ipPolicyEnabled" :disabled="isSavingTarget('location', record.id)" :loading="savingSetting === `location-${record.id}-ipPolicyEnabled`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateLocationSetting(record, 'ipPolicyEnabled', checked)" /></template>
               <template v-else-if="column.key === 'api'"><a-space><a-switch :checked="record.apiPolicyEnabled" :disabled="isSavingTarget('location', record.id)" :loading="savingSetting === `location-${record.id}-apiPolicyEnabled`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateLocationSetting(record, 'apiPolicyEnabled', checked)" /><a-tag v-if="!serverForLocation(record.id)?.apiPolicyEnabled" color="orange">上级总开关关闭</a-tag></a-space></template>
@@ -285,7 +298,7 @@ onMounted(loadCenters);
           </a-table>
         </a-tab-pane>
         <a-tab-pane key="stream" tab="四层监听端口">
-          <a-table :columns="streamTargetColumns" :data-source="streamServers" :pagination="false" row-key="id" size="small">
+          <a-table :columns="streamTargetColumns" :data-source="streamRows" :pagination="streamPager.table.value" @change="(p:any)=>changePolicyPage('stream',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">{{ record.serviceName }}:{{ record.listenPort }}（{{ record.protocol }}）</template>
               <template v-else-if="column.key === 'ip'"><a-switch :checked="record.ipPolicyEnabled" :disabled="isSavingTarget('stream', record.id)" :loading="savingSetting === `stream-${record.id}`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateStreamSetting(record, checked)" /></template>
@@ -299,7 +312,7 @@ onMounted(loadCenters);
       <a-col :lg="12" :xs="24">
         <a-card :bordered="false" :loading="loading" title="IP 访问策略">
           <template #extra><a-button :disabled="!selectedCenterId" type="primary" @click="openIp()">新增 IP 策略</a-button></template>
-          <a-table :columns="ipColumns" :data-source="ipPolicies" :pagination="false" row-key="id" size="small">
+          <a-table :columns="ipColumns" :data-source="ipRows" :pagination="ipPager.table.value" @change="(p:any)=>changePolicyPage('ip',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'scope'">{{ scopeLabel(record.scope) }}</template>
               <template v-else-if="column.key === 'target'">{{ targetLabel(record) }}</template>
@@ -314,7 +327,7 @@ onMounted(loadCenters);
       <a-col :lg="12" :xs="24" class="max-lg:mt-4">
         <a-card :bordered="false" :loading="loading" title="接口访问策略">
           <template #extra><a-button :disabled="!selectedCenterId || !locations.length" type="primary" @click="openApi()">新增接口策略</a-button></template>
-          <a-table :columns="apiColumns" :data-source="apiPolicies" :pagination="false" row-key="id" size="small">
+          <a-table :columns="apiColumns" :data-source="apiRows" :pagination="apiPager.table.value" @change="(p:any)=>changePolicyPage('api',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'location'">{{ locationLabel(record.httpLocationId) }}</template>
               <template v-else-if="column.key === 'mode'"><a-tag :color="record.mode === 'BLACKLIST' ? 'red' : 'green'">{{ modeLabel(record.mode) }}</a-tag></template>

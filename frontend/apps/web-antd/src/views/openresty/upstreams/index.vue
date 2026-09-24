@@ -20,6 +20,7 @@ import {
   message,
 } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
 type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
@@ -34,6 +35,8 @@ const activeProtocol = ref<'http' | 'stream'>('http');
 const loading = ref(false);
 const httpUpstreams = ref<HttpUpstream[]>([]);
 const streamUpstreams = ref<StreamUpstream[]>([]);
+const upstreamRows=ref<(HttpUpstream|StreamUpstream)[]>([]),targetRows=ref<HttpTarget[]>([]);
+const upstreamPager=useServerPagination(),targetPager=useServerPagination();
 const resolvers = ref<Resolver[]>([]);
 const drawerOpen = ref(false);
 const resolverDrawerOpen = ref(false);
@@ -52,7 +55,7 @@ const currentResolver = computed(() => resolvers.value.find((item) => item.scope
 const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200 });
 const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64 });
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
-const currentList = computed(() => activeProtocol.value === 'http' ? httpUpstreams.value : streamUpstreams.value);
+const currentList = computed(() => upstreamRows.value);
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const title = computed(() => activeProtocol.value === 'http' ? 'HTTP Upstream' : 'Stream Upstream');
 const reportMetrics = computed(() => activeProtocol.value === 'http' ? [
@@ -100,8 +103,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 
+async function loadUpstreamPage(){if(!selectedCenterId.value)return;const path=activeProtocol.value==='http'?'http/upstreams/paged':'stream/upstreams/paged';upstreamRows.value=upstreamPager.apply(await request<PageResult<HttpUpstream|StreamUpstream>>(`/centers/${selectedCenterId.value}/${path}?${upstreamPager.query()}`))}
+async function changeUpstreamPage(p:any){upstreamPager.change(p);await loadUpstreamPage()}
+async function loadTargetPage(){if(!selectedCenterId.value||!selectedHttpUpstream.value)return;targetRows.value=targetPager.apply(await request<PageResult<HttpTarget>>(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/paged?${targetPager.query()}`))}
+async function changeTargetPage(p:any){targetPager.change(p);await loadTargetPage()}
 async function loadCenter(centerId: string) {
   selectedCenterId.value = centerId;
+  upstreamPager.reset(); targetPager.reset();
   loading.value = true;
   try {
     [httpUpstreams.value, streamUpstreams.value, resolvers.value] = await Promise.all([
@@ -109,6 +117,7 @@ async function loadCenter(centerId: string) {
       request<StreamUpstream[]>(`/centers/${centerId}/stream/upstreams`),
       request<Resolver[]>(`/centers/${centerId}/dns-resolvers`),
     ]);
+    await loadUpstreamPage();
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载 Upstream 失败');
   } finally {
@@ -173,6 +182,7 @@ function openTargets(upstream: HttpUpstream, target?: HttpTarget) {
   editingTargetId.value = target?.id;
   targetForm.value = target ? { ...target } : freshTarget();
   healthResults.value = [];
+  targetPager.reset(); targetRows.value=[]; loadTargetPage();
   targetDrawerOpen.value = true;
 }
 async function runHealthChecks() {
@@ -197,6 +207,7 @@ async function refreshSelectedTargets() {
   const upstreamId = selectedHttpUpstream.value.id;
   await loadCenter(selectedCenterId.value);
   selectedHttpUpstream.value = httpUpstreams.value.find((item) => item.id === upstreamId);
+  await loadTargetPage();
 }
 async function saveTarget() {
   if (!selectedCenterId.value || !selectedHttpUpstream.value || !targetForm.value.targetHost) return;
@@ -216,8 +227,8 @@ async function removeCurrentTarget() {
   if (target) await removeTarget(target);
 }
 
-function switchProtocol(key: string) {
-  activeProtocol.value = key as 'http' | 'stream';
+async function switchProtocol(key: string) {
+  activeProtocol.value = key as 'http' | 'stream'; upstreamPager.reset(); await loadUpstreamPage();
 }
 
 function openResolverDrawer() {
@@ -331,7 +342,8 @@ onMounted(load);
         :columns="columns"
         :data-source="currentList"
         :loading="loading"
-        :pagination="false"
+        :pagination="upstreamPager.table.value"
+        @change="changeUpstreamPage"
         row-key="id"
       >
         <template #bodyCell="{ column, record }">
@@ -447,7 +459,7 @@ onMounted(load);
       <a-alert class="mb-4" type="info" show-icon message="保存后请在“版本与审计”中生成原生配置并重载，新的后端实例才会参与转发。" />
       <div class="mb-3 flex items-center justify-between"><span class="text-sm text-gray-500">{{ selectedHttpUpstream?.healthCheckEnabled ? `主动检查：${selectedHttpUpstream.healthCheckPath}，每 ${selectedHttpUpstream.healthCheckIntervalSeconds} 秒` : '未启用主动健康检查' }}</span><a-button :disabled="!selectedHttpUpstream?.healthCheckEnabled" :loading="healthChecking" @click="runHealthChecks">立即检查</a-button></div>
       <a-alert v-if="healthResults.length" class="mb-4" :type="healthResults.every((item) => item.status === 'HEALTHY') ? 'success' : 'warning'" show-icon :message="healthResults.map((item) => `${item.targetHost}:${item.targetPort} ${item.status === 'HEALTHY' ? '健康' : item.status === 'NOT_CONFIGURED' ? '未配置' : '异常'}${item.httpStatus ? `（${item.httpStatus}）` : ''}`).join('；')" />
-      <a-table class="mb-5" :columns="targetColumns" :data-source="selectedHttpUpstream?.targets || []" :pagination="false" row-key="id" size="small">
+      <a-table class="mb-5" :columns="targetColumns" :data-source="targetRows" :pagination="targetPager.table.value" @change="changeTargetPage" row-key="id" size="small">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'health'">{{ record.maxFails }} 次失败 / {{ record.failTimeoutSeconds }} 秒</template>
           <template v-else-if="column.key === 'status'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag><a-tag v-if="record.resolveEnabled" color="blue">动态解析（resolve）</a-tag><a-tag v-if="record.backup" color="orange">备用</a-tag></template>

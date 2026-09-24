@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { Alert as AAlert, Button as AButton, Card as ACard, Checkbox as ACheckbox, Col as ACol, Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Row as ARow, Select as ASelect, Table as ATable, Tag as ATag, message } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
 type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number };
@@ -10,6 +11,8 @@ type StreamServer = { id: string; serviceName: string; listenPort: number; proto
 const centers = ref<Center[]>([]);
 const upstreams = ref<StreamUpstream[]>([]);
 const servers = ref<StreamServer[]>([]);
+const upstreamRows=ref<StreamUpstream[]>([]),serverRows=ref<StreamServer[]>([]);
+const upstreamPager=useServerPagination(),serverPager=useServerPagination();
 const selectedCenterId = ref<string>();
 const loading = ref(false);
 const upstreamOpen = ref(false);
@@ -35,9 +38,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || body.message || '请求失败'); }
   return response.status === 204 ? (undefined as T) : response.json() as Promise<T>;
 }
+async function loadStreamPage(kind:'upstream'|'server') { if(!selectedCenterId.value)return; const pager=kind==='upstream'?upstreamPager:serverPager; const path=kind==='upstream'?'upstreams/paged':'servers/paged'; const result=await request<PageResult<any>>(`/centers/${selectedCenterId.value}/stream/${path}?${pager.query()}`); const items=pager.apply(result); if(kind==='upstream')upstreamRows.value=items;else serverRows.value=items; }
+async function changeStreamPage(kind:'upstream'|'server',p:any){const pager=kind==='upstream'?upstreamPager:serverPager;pager.change(p);await loadStreamPage(kind)}
 async function loadCenter(centerId: string) {
   selectedCenterId.value = centerId; loading.value = true;
-  try { [upstreams.value, servers.value] = await Promise.all([request<StreamUpstream[]>(`/centers/${centerId}/stream/upstreams`), request<StreamServer[]>(`/centers/${centerId}/stream/servers`)]); }
+  upstreamPager.reset(); serverPager.reset();
+  try { [upstreams.value, servers.value] = await Promise.all([request<StreamUpstream[]>(`/centers/${centerId}/stream/upstreams`), request<StreamServer[]>(`/centers/${centerId}/stream/servers`)]); await Promise.all([loadStreamPage('upstream'),loadStreamPage('server')]); }
   catch (error) { message.error(error instanceof Error ? error.message : '加载四层配置失败'); }
   finally { loading.value = false; }
 }
@@ -81,7 +87,7 @@ onMounted(load);
       <a-col :lg="11" :xs="24">
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的转发目标` : '转发目标'">
           <template #extra><a-button type="primary" :disabled="!selectedCenterId" @click="openUpstream()">新增 Upstream</a-button></template>
-          <a-table :columns="upstreamColumns" :data-source="upstreams" :loading="loading" :pagination="false" row-key="id">
+          <a-table :columns="upstreamColumns" :data-source="upstreamRows" :loading="loading" :pagination="upstreamPager.table.value" @change="(p:any)=>changeStreamPage('upstream',p)" row-key="id">
             <template #emptyText><a-empty description="还没有转发目标，请先新增 Upstream" /></template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'targetHost'"><span class="font-mono">{{ record.targetHost }}</span></template>
@@ -94,7 +100,7 @@ onMounted(load);
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的监听服务` : '监听服务'">
           <template #extra><a-button type="primary" :disabled="!selectedCenterId || !upstreams.length" @click="openServer()">新增 Server</a-button></template>
           <a-alert v-if="selectedCenterId && !upstreams.length && !loading" class="mb-3" type="warning" show-icon message="请先创建至少一个 Upstream，才能创建监听服务。" />
-          <a-table :columns="serverColumns" :data-source="servers" :loading="loading" :pagination="false" row-key="id">
+          <a-table :columns="serverColumns" :data-source="serverRows" :loading="loading" :pagination="serverPager.table.value" @change="(p:any)=>changeStreamPage('server',p)" row-key="id">
             <template #emptyText><a-empty description="还没有监听服务，请新增 Server" /></template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'protocol'"><a-tag :color="record.protocol === 'TCP' ? 'blue' : 'purple'">{{ protocolLabel(record.protocol) }}</a-tag></template>

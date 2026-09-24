@@ -70,6 +70,13 @@ public class RuntimeConfigurationController {
         return versions.findByCenterIdOrderByVersionNoDesc(centerId).stream().map(VersionView::from).toList();
     }
 
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<VersionView> paged(@PathVariable UUID centerId,
+                                                                     @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+                                                                     @org.springframework.web.bind.annotation.RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId), page, size);
+    }
+
     @GetMapping("/current")
     public PublishedConfiguration current(@PathVariable UUID centerId) {
         requireCenter(centerId);

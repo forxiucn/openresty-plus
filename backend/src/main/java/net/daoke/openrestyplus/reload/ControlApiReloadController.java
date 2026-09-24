@@ -32,6 +32,14 @@ public class ControlApiReloadController {
         return reloads.list(centerId);
     }
 
+    @GetMapping("/control-api-reloads/paged")
+    public net.daoke.openrestyplus.web.PageResult<ControlApiReloadService.ReloadTaskView> paged(
+        @PathVariable UUID centerId,
+        @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+        @org.springframework.web.bind.annotation.RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId), page, size);
+    }
+
     @GetMapping("/control-api-reloads/{taskId}")
     public ControlApiReloadService.ReloadTaskView get(@PathVariable UUID centerId, @PathVariable UUID taskId) {
         return reloads.get(centerId, taskId);

@@ -37,6 +37,13 @@ public class NginxNodeController {
         return nodes.findByCenterIdOrderByName(centerId).stream().map(NodeView::from).toList();
     }
 
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<NodeView> paged(@PathVariable UUID centerId,
+                                                                  @RequestParam(defaultValue = "0") int page,
+                                                                  @RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId), page, size);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create an Nginx node")

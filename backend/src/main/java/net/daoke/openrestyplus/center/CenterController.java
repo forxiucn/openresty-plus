@@ -20,6 +20,12 @@ public class CenterController {
     @GetMapping
     @Operation(summary = "List centers")
     public List<CenterView> list() { return repository.findAll().stream().map(CenterView::from).toList(); }
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<CenterView> paged(@RequestParam(defaultValue = "0") int page,
+                                                                    @RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(), page, size);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a center")

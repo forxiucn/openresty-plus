@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -50,6 +51,13 @@ public class HttpServerController {
     public List<ServerView> list(@PathVariable UUID centerId) {
         requireCenter(centerId);
         return servers.findByCenterIdOrderByDomainAscListenPortAsc(centerId).stream().map(ServerView::from).toList();
+    }
+
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<ServerView> paged(@PathVariable UUID centerId,
+                                                                    @RequestParam(defaultValue = "0") int page,
+                                                                    @RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId), page, size);
     }
 
     @PostMapping
@@ -88,6 +96,28 @@ public class HttpServerController {
     public List<LocationView> listLocations(@PathVariable UUID centerId, @PathVariable UUID serverId) {
         requireServer(centerId, serverId);
         return locations.findByServerIdOrderByPath(serverId).stream().map(LocationView::from).toList();
+    }
+
+    @GetMapping("/locations/paged")
+    public net.daoke.openrestyplus.web.PageResult<LocationTargetView> pagedCenterLocations(
+        @PathVariable UUID centerId, @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size) {
+        requireCenter(centerId);
+        var values = servers.findByCenterIdOrderByDomainAscListenPortAsc(centerId).stream()
+            .flatMap(server -> locations.findByServerIdOrderByPath(server.getId()).stream()
+                .map(location -> new LocationTargetView(location.getId(), server.getId(),
+                    server.getDomain() + ":" + server.getListenPort() + location.getPath(),
+                    location.isIpPolicyEnabled(), location.isApiPolicyEnabled())))
+            .toList();
+        return net.daoke.openrestyplus.web.PageResult.of(values, page, size);
+    }
+
+    @GetMapping("/{serverId}/locations/paged")
+    public net.daoke.openrestyplus.web.PageResult<LocationView> pagedLocations(@PathVariable UUID centerId,
+                                                                               @PathVariable UUID serverId,
+                                                                               @RequestParam(defaultValue = "0") int page,
+                                                                               @RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(listLocations(centerId, serverId), page, size);
     }
 
     @PostMapping("/{serverId}/locations")
@@ -271,4 +301,5 @@ public class HttpServerController {
     public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
     public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
     public record LocationPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
+    public record LocationTargetView(UUID id, UUID serverId, String label, boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
 }

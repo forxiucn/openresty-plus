@@ -16,6 +16,7 @@ import {
   message,
 } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string; enabled: boolean };
 type RuntimeVersion = {
@@ -46,6 +47,8 @@ const loading = ref(false);
 const publishing = ref(false);
 const reloading = ref(false);
 const reloadTasks = ref<ReloadTask[]>([]);
+const versionRows = ref<RuntimeVersion[]>([]), auditRows = ref<AuditEvent[]>([]), reloadRows = ref<ReloadTask[]>([]);
+const versionPager = useServerPagination(), auditPager = useServerPagination(), reloadPager = useServerPagination();
 
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const centerOptions = computed(() => centers.value.map((item) => ({ value: item.id, label: `${item.name}（${item.code}）` })));
@@ -133,21 +136,34 @@ async function selectCenter(centerId: string) {
   current.value = undefined;
   loading.value = true;
   try {
-    const [loadedVersions, loadedAudits, loadedCurrent, loadedReloads] = await Promise.all([
+    versionPager.reset(); auditPager.reset(); reloadPager.reset();
+    const [loadedVersions, loadedAudits, loadedCurrent, loadedReloads, vp, ap, rp] = await Promise.all([
       request<RuntimeVersion[]>(`/centers/${centerId}/runtime-configurations`),
       request<AuditEvent[]>(`/centers/${centerId}/audit-events`),
       request<PublishedConfiguration>(`/centers/${centerId}/runtime-configurations/current`).catch(() => undefined),
       request<ReloadTask[]>(`/centers/${centerId}/control-api-reloads`).catch(() => []),
+      request<PageResult<RuntimeVersion>>(`/centers/${centerId}/runtime-configurations/paged?${versionPager.query()}`),
+      request<PageResult<AuditEvent>>(`/centers/${centerId}/audit-events/paged?${auditPager.query()}`),
+      request<PageResult<ReloadTask>>(`/centers/${centerId}/control-api-reloads/paged?${reloadPager.query()}`).catch(() => ({items:[],page:0,size:10,total:0,totalPages:0})),
     ]);
     versions.value = loadedVersions;
     auditEvents.value = loadedAudits;
     current.value = loadedCurrent;
     reloadTasks.value = loadedReloads;
+    versionRows.value=versionPager.apply(vp); auditRows.value=auditPager.apply(ap); reloadRows.value=reloadPager.apply(rp);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载版本信息失败');
   } finally {
     loading.value = false;
   }
+}
+
+async function changePage(kind:'version'|'audit'|'reload', value:any){
+  if(!selectedCenterId.value)return;
+  const pager=kind==='version'?versionPager:kind==='audit'?auditPager:reloadPager; pager.change(value);
+  const path=kind==='version'?'runtime-configurations/paged':kind==='audit'?'audit-events/paged':'control-api-reloads/paged';
+  const result=await request<PageResult<any>>(`/centers/${selectedCenterId.value}/${path}?${pager.query()}`);
+  const items=pager.apply(result); if(kind==='version')versionRows.value=items;else if(kind==='audit')auditRows.value=items;else reloadRows.value=items;
 }
 
 async function reloadNativeConfiguration() {
@@ -234,7 +250,7 @@ onMounted(loadCenters);
       </a-col>
       <a-col :lg="14" :xs="24" class="max-lg:mt-4">
         <a-card :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的版本历史` : '版本历史'">
-          <a-table :columns="versionColumns" :data-source="versions" :loading="loading" :pagination="false" row-key="id" size="small">
+          <a-table :columns="versionColumns" :data-source="versionRows" :loading="loading" :pagination="versionPager.table.value" @change="(p:any)=>changePage('version',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'versionNo'">v{{ record.versionNo }}</template>
               <template v-else-if="column.key === 'state'"><a-tag :color="record.state === 'ROLLED_BACK' ? 'orange' : 'green'">{{ versionStateLabel(record.state) }}</a-tag></template>
@@ -248,7 +264,7 @@ onMounted(loadCenters);
     </a-row>
 
     <a-card class="mt-5" :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的操作审计` : '操作审计'">
-      <a-table :columns="auditColumns" :data-source="auditEvents" :loading="loading" :pagination="false" row-key="id">
+      <a-table :columns="auditColumns" :data-source="auditRows" :loading="loading" :pagination="auditPager.table.value" @change="(p:any)=>changePage('audit',p)" row-key="id">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template>
           <template v-else-if="column.key === 'action'">{{ auditActionLabel(record.action) }}</template>
@@ -258,7 +274,7 @@ onMounted(loadCenters);
     </a-card>
 
     <a-card class="mt-5" :bordered="false" :title="selectedCenter ? `${selectedCenter.name} 的原生配置重载记录` : '原生配置重载记录'">
-      <a-table :columns="reloadColumns" :data-source="reloadTasks" :loading="loading" :pagination="false" row-key="id">
+      <a-table :columns="reloadColumns" :data-source="reloadRows" :loading="loading" :pagination="reloadPager.table.value" @change="(p:any)=>changePage('reload',p)" row-key="id">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template>
           <template v-else-if="column.key === 'status'"><a-tag :color="record.status === 'SUCCESS' ? 'green' : record.status === 'PARTIAL_SUCCESS' ? 'orange' : 'red'">{{ reloadStateLabel(record.status) }}</a-tag></template>

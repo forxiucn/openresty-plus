@@ -57,6 +57,15 @@ public class IpPolicyController {
         return View.from(requirePolicy(centerId, policyId));
     }
 
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<View> paged(@PathVariable UUID centerId,
+                                                              @RequestParam(required = false) IpPolicyScope scope,
+                                                              @RequestParam(required = false) UUID targetResourceId,
+                                                              @RequestParam(defaultValue = "0") int page,
+                                                              @RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId, scope, targetResourceId), page, size);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public View create(@PathVariable UUID centerId, @Valid @RequestBody Request request) {

@@ -26,6 +26,13 @@ public class AuditEventController {
             .map(event -> new View(event.getId(), event.getActor(), event.getAction(), event.getResourceType(),
                 event.getResourceId(), event.getResult(), event.getCreatedAt())).toList();
     }
+    @GetMapping("/paged")
+    public net.daoke.openrestyplus.web.PageResult<View> paged(@PathVariable UUID centerId,
+                                                              @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int page,
+                                                              @org.springframework.web.bind.annotation.RequestParam(defaultValue = "10") int size) {
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId), page, size);
+    }
+
     /** Deliberately omits the JSON detail field because it can contain operational metadata. */
     public record View(UUID id, String actor, String action, String resourceType, String resourceId,
                        String result, Instant createdAt) { }
