@@ -23,6 +23,12 @@ const routes: RouteRecordRaw[] = [
     path: '/openresty/http-config',
   },
   {
+    component: () => import('#/views/openresty/http-location/index.vue'),
+    meta: { hideInMenu: true, icon: 'lucide:waypoints', title: 'Location 配置' },
+    name: 'HttpLocationManagement',
+    path: '/openresty/http-locations',
+  },
+  {
     component: () => import('#/views/openresty/upstreams/index.vue'),
     meta: {
       icon: 'lucide:route',
