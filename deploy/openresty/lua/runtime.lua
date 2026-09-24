@@ -195,30 +195,39 @@ local function applies_to_http(policy, server_id, location_id)
   return false
 end
 
+local function enforce_mode_policies(policies, matcher, order, blacklist_reason, whitelist_reason)
+  local blacklist_match, whitelist_configured, whitelist_match = false, false, false
+  for _, policy in ipairs(policies) do
+    if policy.enabled then
+      local matches = matcher(policy)
+      if policy.mode == "BLACKLIST" and matches then blacklist_match = true end
+      if policy.mode == "WHITELIST" then
+        whitelist_configured = true
+        if matches then whitelist_match = true end
+      end
+    end
+  end
+  if order == "WHITELIST_FIRST" and whitelist_match then return "allow" end
+  if blacklist_match then return reject(blacklist_reason) end
+  if whitelist_configured and not whitelist_match then return reject(whitelist_reason) end
+  return "allow"
+end
+
 local function enforce_ip_policies(content, server_id, location_id, server, location)
   local client_ip = ngx.var.remote_addr or ""
   local policies = {}
-  for _, policy in ipairs(content.ipPolicies or {}) do policies[#policies + 1] = policy end
+  for _, policy in ipairs(content.ipPolicies or {}) do
+    local target_enabled = (policy.scope == "HTTP_SERVER" and server.ipPolicyEnabled ~= false)
+        or (policy.scope == "HTTP_LOCATION" and location and location.ipPolicyEnabled ~= false)
+    if target_enabled and applies_to_http(policy, server_id, location_id) then policies[#policies + 1] = policy end
+  end
   table.sort(policies, function(left, right)
     local lp, rp = tonumber(left.priority) or 0, tonumber(right.priority) or 0
     if lp ~= rp then return lp < rp end
     return tostring(left.id or "") < tostring(right.id or "")
   end)
-  for _, policy in ipairs(policies) do
-    local target_enabled = (policy.scope == "HTTP_SERVER" and server.ipPolicyEnabled ~= false)
-        or (policy.scope == "HTTP_LOCATION" and location and location.ipPolicyEnabled ~= false)
-    if policy.enabled and target_enabled and applies_to_http(policy, server_id, location_id) then
-      local matches = ip_matches(client_ip, policy.ipRules)
-      if policy.mode == "BLACKLIST" and matches then return reject("ip-blacklist") end
-      -- A matching whitelist is an explicit allow decision at this priority;
-      -- a non-match is denied immediately. Lower-priority policies do not
-      -- silently override this decision.
-      if policy.mode == "WHITELIST" then
-        if matches then return "allow" end
-        return reject("ip-whitelist")
-      end
-    end
-  end
+  return enforce_mode_policies(policies, function(policy) return ip_matches(client_ip, policy.ipRules) end,
+    server.ipPolicyModeOrder or "BLACKLIST_FIRST", "ip-blacklist", "ip-whitelist")
 end
 
 local function api_matches(policy)
@@ -241,25 +250,20 @@ function _M.enforce()
     return ngx.exit(ngx.HTTP_NOT_FOUND)
   end
   enforce_ip_policies(content, server_id, location_id, server, location)
-  if not location_id then return end
-  if server.apiPolicyEnabled == false or location.apiPolicyEnabled == false then return end
+  if server.apiPolicyEnabled == false then return end
   local policies = {}
-  for _, policy in ipairs(content.apiPolicies or {}) do policies[#policies + 1] = policy end
+  for _, policy in ipairs(content.apiPolicies or {}) do
+    local applies = (policy.scope == "HTTP_SERVER" and tostring(policy.targetResourceId) == tostring(server_id))
+      or (policy.scope == "HTTP_LOCATION" and location and location.apiPolicyEnabled ~= false
+        and tostring(policy.targetResourceId) == tostring(location_id))
+    if applies then policies[#policies + 1] = policy end
+  end
   table.sort(policies, function(left, right)
     local lp, rp = tonumber(left.priority) or 0, tonumber(right.priority) or 0
     if lp ~= rp then return lp < rp end
     return tostring(left.id or "") < tostring(right.id or "")
   end)
-  for _, policy in ipairs(policies) do
-    if policy.enabled and tostring(policy.httpLocationId) == tostring(location_id) then
-      local matches = api_matches(policy)
-      if policy.mode == "BLACKLIST" and matches then return reject("api-blacklist") end
-      if policy.mode == "WHITELIST" then
-        if matches then return end
-        return reject("api-whitelist")
-      end
-    end
-  end
+  return enforce_mode_policies(policies, api_matches, server.apiPolicyModeOrder or "BLACKLIST_FIRST", "api-blacklist", "api-whitelist")
 end
 
 return _M

@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import net.daoke.openrestyplus.center.CenterRepository;
 import net.daoke.openrestyplus.audit.AuditService;
 import net.daoke.openrestyplus.tls.TlsCertificateRepository;
+import net.daoke.openrestyplus.policy.PolicyModeOrder;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -164,11 +165,15 @@ public class HttpServerController {
     public ServerView serverPolicySettings(@PathVariable UUID centerId, @PathVariable UUID serverId,
                                            @Valid @RequestBody ServerPolicySettingsRequest request) {
         var server = requireServerEntity(centerId, serverId);
-        var before = Map.of("ipPolicyEnabled", server.isIpPolicyEnabled(), "apiPolicyEnabled", server.isApiPolicyEnabled());
-        server.applyPolicySettings(request.ipPolicyEnabled(), request.apiPolicyEnabled());
+        var before = Map.of("ipPolicyEnabled", server.isIpPolicyEnabled(), "apiPolicyEnabled", server.isApiPolicyEnabled(),
+            "ipPolicyModeOrder", server.getIpPolicyModeOrder(), "apiPolicyModeOrder", server.getApiPolicyModeOrder());
+        var ipModeOrder = request.ipPolicyModeOrder() == null ? server.getIpPolicyModeOrder() : request.ipPolicyModeOrder();
+        var apiModeOrder = request.apiPolicyModeOrder() == null ? server.getApiPolicyModeOrder() : request.apiPolicyModeOrder();
+        server.applyPolicySettings(request.ipPolicyEnabled(), request.apiPolicyEnabled(), ipModeOrder, apiModeOrder);
         var saved = servers.save(server);
         audit.success(centerId, "HTTP_SERVER_POLICY_SETTINGS_UPDATED", "HTTP_SERVER", serverId,
-            Map.of("before", before, "after", Map.of("ipPolicyEnabled", request.ipPolicyEnabled(), "apiPolicyEnabled", request.apiPolicyEnabled())));
+            Map.of("before", before, "after", Map.of("ipPolicyEnabled", request.ipPolicyEnabled(), "apiPolicyEnabled", request.apiPolicyEnabled(),
+                "ipPolicyModeOrder", ipModeOrder, "apiPolicyModeOrder", apiModeOrder)));
         return ServerView.from(saved);
     }
     @PutMapping("/{serverId}/locations/{locationId}/policy-settings")
@@ -272,11 +277,12 @@ public class HttpServerController {
     }
 
     public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
-                             String accessLog, String errorLog, boolean ipPolicyEnabled, boolean apiPolicyEnabled) {
+                             String accessLog, String errorLog, boolean ipPolicyEnabled, boolean apiPolicyEnabled,
+                             PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder) {
         static ServerView from(HttpServer server) {
             return new ServerView(server.getId(), server.getDomain(), server.getListenPort(), server.isSslEnabled(),
                 server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog(),
-                server.isIpPolicyEnabled(), server.isApiPolicyEnabled());
+                server.isIpPolicyEnabled(), server.isApiPolicyEnabled(), server.getIpPolicyModeOrder(), server.getApiPolicyModeOrder());
         }
     }
 
@@ -299,7 +305,9 @@ public class HttpServerController {
         }
     }
     public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
-    public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
+    public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled,
+                                              PolicyModeOrder ipPolicyModeOrder,
+                                              PolicyModeOrder apiPolicyModeOrder) { }
     public record LocationPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
     public record LocationTargetView(UUID id, UUID serverId, String label, boolean ipPolicyEnabled, boolean apiPolicyEnabled) { }
 }

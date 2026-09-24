@@ -74,19 +74,18 @@ function _M.enforce()
     if lp ~= rp then return lp < rp end
     return tostring(left.id or "") < tostring(right.id or "")
   end)
+  local blacklist_match, whitelist_configured, whitelist_match = false, false, false
   for _, policy in ipairs(policies) do
-    if policy.enabled and policy.scope == "STREAM" and tostring(policy.targetResourceId) == tostring(server_id) then
+    if policy.enabled then
       local matches = ip_matches(client_ip, policy.ipRules)
-      if policy.mode == "BLACKLIST" and matches then
-        ngx.log(ngx.WARN, "四层 IP 策略拒绝连接: policy=", tostring(policy.id), ", client=", client_ip)
-        return ngx.exit(ngx.ERROR)
-      end
-      if policy.mode == "WHITELIST" then
-        if matches then return "allow" end
-        ngx.log(ngx.WARN, "四层 IP 白名单拒绝连接: policy=", tostring(policy.id), ", client=", client_ip)
-        return ngx.exit(ngx.ERROR)
-      end
+      if policy.mode == "BLACKLIST" and matches then blacklist_match = true end
+      if policy.mode == "WHITELIST" then whitelist_configured = true; if matches then whitelist_match = true end end
     end
+  end
+  if server.ipPolicyModeOrder == "WHITELIST_FIRST" and whitelist_match then return "allow" end
+  if blacklist_match or (whitelist_configured and not whitelist_match) then
+    ngx.log(ngx.WARN, "四层 IP 策略拒绝连接: client=", client_ip)
+    return ngx.exit(ngx.ERROR)
   end
 end
 

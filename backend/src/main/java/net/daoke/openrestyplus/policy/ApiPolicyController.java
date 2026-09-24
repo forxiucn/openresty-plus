@@ -38,34 +38,37 @@ public class ApiPolicyController {
     }
 
     @GetMapping
-    public List<View> list(@PathVariable UUID centerId, @RequestParam(required = false) UUID httpLocationId) {
+    public List<View> list(@PathVariable UUID centerId, @RequestParam(required = false) ApiPolicyScope scope,
+                           @RequestParam(required = false) UUID targetResourceId) {
         requireCenter(centerId);
-        var values = httpLocationId == null ? policies.findByCenterIdOrderByPriorityAscIdAsc(centerId)
-            : policies.findByCenterIdAndHttpLocationIdOrderByPriorityAscIdAsc(centerId, httpLocationId);
+        if ((scope == null) != (targetResourceId == null)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "scope and targetResourceId must be supplied together");
+        var values = scope == null ? policies.findByCenterIdOrderByPriorityAscIdAsc(centerId)
+            : policies.findByCenterIdAndScopeAndTargetResourceIdOrderByPriorityAscIdAsc(centerId, scope, targetResourceId);
         return values.stream().map(View::from).toList();
     }
     @GetMapping("/{policyId}")
     public View get(@PathVariable UUID centerId, @PathVariable UUID policyId) { return View.from(requirePolicy(centerId, policyId)); }
     @GetMapping("/paged")
     public net.daoke.openrestyplus.web.PageResult<View> paged(@PathVariable UUID centerId,
-                                                              @RequestParam(required = false) UUID httpLocationId,
+                                                              @RequestParam(required = false) ApiPolicyScope scope,
+                                                              @RequestParam(required = false) UUID targetResourceId,
                                                               @RequestParam(defaultValue = "0") int page,
                                                               @RequestParam(defaultValue = "10") int size) {
-        return net.daoke.openrestyplus.web.PageResult.of(list(centerId, httpLocationId), page, size);
+        return net.daoke.openrestyplus.web.PageResult.of(list(centerId, scope, targetResourceId), page, size);
     }
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
     public View create(@PathVariable UUID centerId, @Valid @RequestBody Request request) {
         requireCenter(centerId);
-        validateLocation(centerId, request.httpLocationId());
+        validateTarget(centerId, request.scope(), request.targetResourceId());
         var saved = policies.save(toPolicy(centerId, request));
         audit.success(centerId, "API_POLICY_CREATED", "API_POLICY", saved.getId());
         return View.from(saved);
     }
     @PutMapping("/{policyId}")
     public View update(@PathVariable UUID centerId, @PathVariable UUID policyId, @Valid @RequestBody Request request) {
-        validateLocation(centerId, request.httpLocationId());
+        validateTarget(centerId, request.scope(), request.targetResourceId());
         var policy = requirePolicy(centerId, policyId);
-        policy.apply(request.mode(), request.priority(), request.httpLocationId(), request.enabled(), toRules(request.rules()));
+        policy.apply(request.mode(), request.priority(), request.scope(), request.targetResourceId(), request.enabled(), toRules(request.rules()));
         var saved = policies.save(policy);
         audit.success(centerId, "API_POLICY_UPDATED", "API_POLICY", policyId);
         return View.from(saved);
@@ -81,7 +84,7 @@ public class ApiPolicyController {
         var policy = requirePolicy(centerId, policyId);
         int offset = "UP".equalsIgnoreCase(direction) ? -1 : "DOWN".equalsIgnoreCase(direction) ? 1 : 0;
         if (offset == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction must be UP or DOWN");
-        var scoped = policies.findByCenterIdAndHttpLocationIdOrderByPriorityAscIdAsc(centerId, policy.getHttpLocationId());
+        var scoped = policies.findByCenterIdAndScopeAndTargetResourceIdOrderByPriorityAscIdAsc(centerId, policy.getScope(), policy.getTargetResourceId());
         int index = scoped.stream().map(ApiPolicy::getId).toList().indexOf(policyId);
         int next = index + offset;
         if (next >= 0 && next < scoped.size()) {
@@ -94,16 +97,17 @@ public class ApiPolicyController {
     }
 
     private ApiPolicy toPolicy(UUID centerId, Request request) {
-        return new ApiPolicy(centerId, request.mode(), request.priority(), request.httpLocationId(), request.enabled(), toRules(request.rules()));
+        return new ApiPolicy(centerId, request.mode(), request.priority(), request.scope(), request.targetResourceId(), request.enabled(), toRules(request.rules()));
     }
     private List<ApiPolicyRule> toRules(List<Rule> rules) {
         return rules.stream().map(rule -> new ApiPolicyRule(rule.method().toUpperCase(Locale.ROOT), rule.path())).toList();
     }
     private void requireCenter(UUID centerId) { if (!centers.existsById(centerId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Center not found"); }
-    private void validateLocation(UUID centerId, UUID locationId) {
-        boolean belongsToCenter = httpLocations.findById(locationId)
-            .flatMap(location -> httpServers.findByIdAndCenterId(location.getServerId(), centerId))
-            .isPresent();
+    private void validateTarget(UUID centerId, ApiPolicyScope scope, UUID targetResourceId) {
+        boolean belongsToCenter = scope == ApiPolicyScope.HTTP_SERVER
+            ? httpServers.findByIdAndCenterId(targetResourceId, centerId).isPresent()
+            : httpLocations.findById(targetResourceId)
+                .flatMap(location -> httpServers.findByIdAndCenterId(location.getServerId(), centerId)).isPresent();
         if (!belongsToCenter) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "The API policy target does not belong to this center");
     }
@@ -112,11 +116,11 @@ public class ApiPolicyController {
         return policies.findById(policyId).filter(value -> value.getCenterId().equals(centerId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "API policy not found"));
     }
-    public record Request(@NotNull PolicyMode mode, @Min(0) int priority, @NotNull UUID httpLocationId, boolean enabled,
+    public record Request(@NotNull PolicyMode mode, @Min(0) int priority, @NotNull ApiPolicyScope scope, @NotNull UUID targetResourceId, boolean enabled,
                           @NotEmpty @Size(max = 200) List<@Valid Rule> rules) { }
     public record Rule(@NotBlank @Size(max = 16) String method, @NotBlank @Size(max = 1024) String path) { }
     public record RuleView(String method, String path) { static RuleView from(ApiPolicyRule value) { return new RuleView(value.getMethod(), value.getPathPattern()); } }
-    public record View(UUID id, PolicyMode mode, int priority, UUID httpLocationId, boolean enabled, List<RuleView> rules) {
-        static View from(ApiPolicy value) { return new View(value.getId(), value.getMode(), value.getPriority(), value.getHttpLocationId(), value.isEnabled(), value.getRules().stream().map(RuleView::from).toList()); }
+    public record View(UUID id, PolicyMode mode, int priority, ApiPolicyScope scope, UUID targetResourceId, boolean enabled, List<RuleView> rules) {
+        static View from(ApiPolicy value) { return new View(value.getId(), value.getMode(), value.getPriority(), value.getScope(), value.getTargetResourceId(), value.isEnabled(), value.getRules().stream().map(RuleView::from).toList()); }
     }
 }

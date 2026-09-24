@@ -22,8 +22,13 @@ public class ApiPolicy {
     private PolicyMode mode;
     @Column(nullable = false)
     private int priority;
-    @Column(name = "http_location_id", nullable = false) @JdbcTypeCode(Types.BINARY)
+    /** Retained for migrated historical rows; new code uses scope + targetResourceId. */
+    @Column(name = "http_location_id") @JdbcTypeCode(Types.BINARY)
     private UUID httpLocationId;
+    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 24)
+    private ApiPolicyScope scope;
+    @Column(name = "target_resource_id", nullable = false) @JdbcTypeCode(Types.BINARY)
+    private UUID targetResourceId;
     @Column(nullable = false)
     private boolean enabled;
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
@@ -36,14 +41,15 @@ public class ApiPolicy {
     private Instant updatedAt = Instant.now();
 
     protected ApiPolicy() { }
-    public ApiPolicy(UUID centerId, PolicyMode mode, int priority, UUID httpLocationId,
+    public ApiPolicy(UUID centerId, PolicyMode mode, int priority, ApiPolicyScope scope, UUID targetResourceId,
                      boolean enabled, List<ApiPolicyRule> rules) {
-        this.centerId = centerId;
-        apply(mode, priority, httpLocationId, enabled, rules);
+        this.centerId = centerId; this.scope = scope; this.targetResourceId = targetResourceId;
+        apply(mode, priority, scope, targetResourceId, enabled, rules);
     }
-    public void apply(PolicyMode mode, int priority, UUID httpLocationId,
+    public void apply(PolicyMode mode, int priority, ApiPolicyScope scope, UUID targetResourceId,
                       boolean enabled, List<ApiPolicyRule> rules) {
-        this.mode = mode; this.priority = priority; this.httpLocationId = httpLocationId;
+        this.mode = mode; this.priority = priority; this.scope = scope; this.targetResourceId = targetResourceId;
+        this.httpLocationId = scope == ApiPolicyScope.HTTP_LOCATION ? targetResourceId : null;
         this.enabled = enabled; this.rules.clear(); this.rules.addAll(rules); this.updatedAt = Instant.now();
     }
     public UUID getId() { return id; }
@@ -51,6 +57,8 @@ public class ApiPolicy {
     public PolicyMode getMode() { return mode; }
     public int getPriority() { return priority; }
     public UUID getHttpLocationId() { return httpLocationId; }
+    public ApiPolicyScope getScope() { return scope; }
+    public UUID getTargetResourceId() { return targetResourceId; }
     public boolean isEnabled() { return enabled; }
     public List<ApiPolicyRule> getRules() { return List.copyOf(rules); }
     public void changePriority(int priority) { this.priority = priority; this.updatedAt = Instant.now(); }

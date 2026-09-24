@@ -27,14 +27,16 @@ import MetricGrid from '#/components/operations/MetricGrid.vue';
 import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
-type HttpServer = { id: string; domain: string; listenPort: number; ipPolicyEnabled: boolean; apiPolicyEnabled: boolean };
+type ModeOrder = 'BLACKLIST_FIRST' | 'WHITELIST_FIRST';
+type HttpServer = { id: string; domain: string; listenPort: number; ipPolicyEnabled: boolean; apiPolicyEnabled: boolean; ipPolicyModeOrder: ModeOrder; apiPolicyModeOrder: ModeOrder };
 type HttpLocation = { id: string; path: string; ipPolicyEnabled: boolean; apiPolicyEnabled: boolean };
-type StreamServer = { id: string; serviceName: string; listenPort: number; protocol: 'TCP' | 'UDP'; ipPolicyEnabled: boolean };
+type StreamServer = { id: string; serviceName: string; listenPort: number; protocol: 'TCP' | 'UDP'; ipPolicyEnabled: boolean; ipPolicyModeOrder: ModeOrder };
 type IpScope = 'STREAM' | 'HTTP_SERVER' | 'HTTP_LOCATION';
 type Mode = 'BLACKLIST' | 'WHITELIST';
 type IpPolicy = { id: string; mode: Mode; priority: number; scope: IpScope; targetResourceId: string; enabled: boolean; ipRules: string[] };
 type ApiRule = { method: string; path: string };
-type ApiPolicy = { id: string; mode: Mode; priority: number; httpLocationId: string; enabled: boolean; rules: ApiRule[] };
+type ApiScope = 'HTTP_SERVER' | 'HTTP_LOCATION';
+type ApiPolicy = { id: string; mode: Mode; priority: number; scope: ApiScope; targetResourceId: string; enabled: boolean; rules: ApiRule[] };
 
 const centers = ref<Center[]>([]);
 const servers = ref<HttpServer[]>([]);
@@ -52,8 +54,8 @@ const editingIpId = ref<string>();
 const editingApiId = ref<string>();
 const savingSetting = ref('');
 
-const newIpForm = () => ({ mode: 'BLACKLIST' as Mode, priority: 100, scope: 'HTTP_SERVER' as IpScope, targetResourceId: undefined as string | undefined, enabled: true, ipRules: [] as string[] });
-const newApiForm = () => ({ mode: 'BLACKLIST' as Mode, priority: 100, httpLocationId: undefined as string | undefined, enabled: true, rules: [{ method: 'GET', path: '/' }] as ApiRule[] });
+const newIpForm = () => ({ mode: 'BLACKLIST' as Mode, priority: 100, scope: 'HTTP_SERVER' as IpScope, targetResourceId: undefined as string | undefined, enabled: false, ipRules: [] as string[] });
+const newApiForm = () => ({ mode: 'BLACKLIST' as Mode, priority: 100, scope: 'HTTP_LOCATION' as ApiScope, targetResourceId: undefined as string | undefined, enabled: false, rules: [{ method: 'GET', path: '/' }] as ApiRule[] });
 const ipForm = ref(newIpForm());
 const apiForm = ref(newApiForm());
 
@@ -62,6 +64,7 @@ const modeOptions = [
   { value: 'BLACKLIST', label: '黑名单：命中后拒绝（BLACKLIST）' },
   { value: 'WHITELIST', label: '白名单：仅允许命中项（WHITELIST）' },
 ];
+const modeOrderOptions = [{ value: 'BLACKLIST_FIRST', label: '黑名单优先（BLACKLIST_FIRST）' }, { value: 'WHITELIST_FIRST', label: '白名单优先（WHITELIST_FIRST）' }];
 const scopeOptions = [
   { value: 'HTTP_SERVER', label: '七层：域名与端口（HTTP_SERVER）' },
   { value: 'HTTP_LOCATION', label: '七层：指定接口（HTTP_LOCATION）' },
@@ -77,6 +80,9 @@ const targetOptions = computed(() => {
   return streamServers.value.map((value) => ({ value: value.id, label: `${value.serviceName}:${value.listenPort}（${value.protocol}）` }));
 });
 const locationOptions = computed(() => locations.value.map((value) => ({ value: value.id, label: value.label })));
+const apiScopeOptions = [{ value: 'HTTP_SERVER', label: '域名与端口（HTTP_SERVER）' }, { value: 'HTTP_LOCATION', label: 'Location / API（HTTP_LOCATION）' }];
+const apiTargetOptions = computed(() => apiForm.value.scope === 'HTTP_SERVER'
+  ? servers.value.map((value) => ({ value: value.id, label: `${value.domain}:${value.listenPort}` })) : locationOptions.value);
 const reportMetrics = computed(() => [{ label: 'IP 策略', value: ipPolicies.value.length, suffix: '条', hint: `${ipPolicies.value.filter((item) => item.enabled).length} 条配置已启用`, tone: 'blue' }, { label: 'API 策略', value: apiPolicies.value.length, suffix: '条', hint: `${apiPolicies.value.reduce((sum, item) => sum + item.rules.length, 0)} 条匹配规则`, tone: 'purple' }, { label: '已开启目标', value: servers.value.filter((item) => item.ipPolicyEnabled || item.apiPolicyEnabled).length + locations.value.filter((item) => item.ipPolicyEnabled || item.apiPolicyEnabled).length + streamServers.value.filter((item) => item.ipPolicyEnabled).length, suffix: '个', hint: '至少开启一种访问策略', tone: 'green' }, { label: '待完善配置', value: ipPolicies.value.filter((item) => !ipPolicyEffective(item)).length + apiPolicies.value.filter((item) => !apiPolicyEffective(item)).length, suffix: '条', hint: '策略或目标开关尚未开启', tone: 'orange' }]);
 const locationLabel = (id: string) => locations.value.find((value) => value.id === id)?.label || '配置已删除';
 const targetLabel = (policy: IpPolicy) => {
@@ -85,6 +91,9 @@ const targetLabel = (policy: IpPolicy) => {
   const target = streamServers.value.find((value) => value.id === policy.targetResourceId);
   return target ? `${target.serviceName}:${target.listenPort}（${target.protocol}）` : '配置已删除';
 };
+const apiTargetLabel = (policy: ApiPolicy) => policy.scope === 'HTTP_SERVER'
+  ? (servers.value.find(value => value.id === policy.targetResourceId) ? `${servers.value.find(value => value.id === policy.targetResourceId)?.domain}:${servers.value.find(value => value.id === policy.targetResourceId)?.listenPort}` : '配置已删除')
+  : locationLabel(policy.targetResourceId);
 const serverForLocation = (locationId: string) => {
   const location = locations.value.find((value) => value.id === locationId);
   return location ? servers.value.find((value) => value.id === location.serverId) : undefined;
@@ -96,8 +105,9 @@ const ipPolicyEffective = (policy: IpPolicy) => {
   return !!streamServers.value.find((value) => value.id === policy.targetResourceId)?.ipPolicyEnabled;
 };
 const apiPolicyEffective = (policy: ApiPolicy) => {
-  const location = locations.value.find((value) => value.id === policy.httpLocationId);
-  const server = serverForLocation(policy.httpLocationId);
+  if (policy.scope === 'HTTP_SERVER') return !!(policy.enabled && servers.value.find(value => value.id === policy.targetResourceId)?.apiPolicyEnabled);
+  const location = locations.value.find((value) => value.id === policy.targetResourceId);
+  const server = serverForLocation(policy.targetResourceId);
   return !!(policy.enabled && location?.apiPolicyEnabled && server?.apiPolicyEnabled);
 };
 
@@ -111,16 +121,16 @@ const ipColumns = [
   { key: 'action', title: '操作', width: 130 },
 ];
 const apiColumns = [
-  { dataIndex: 'httpLocationId', key: 'location', title: '生效接口' },
+  { key: 'target', title: '生效目标' },
   { dataIndex: 'mode', key: 'mode', title: '模式', width: 100 },
   { dataIndex: 'priority', key: 'priority', title: '优先级', width: 80 },
   { dataIndex: 'rules', key: 'rules', title: '匹配规则' },
   { dataIndex: 'enabled', key: 'enabled', title: '生效状态', width: 100 },
   { key: 'action', title: '操作', width: 130 },
 ];
-const httpTargetColumns = [{ key: 'target', title: '域名与监听端口' }, { key: 'ip', title: 'IP 策略', width: 180 }, { key: 'api', title: 'API 策略总开关', width: 180 }];
+const httpTargetColumns = [{ key: 'target', title: '域名与监听端口' }, { key: 'ip', title: 'IP 策略', width: 120 }, { key: 'ipOrder', title: 'IP 冲突优先级', width: 190 }, { key: 'api', title: 'API 策略', width: 120 }, { key: 'apiOrder', title: 'API 冲突优先级', width: 190 }];
 const locationTargetColumns = [{ dataIndex: 'label', key: 'target', title: 'Location' }, { key: 'ip', title: 'IP 策略', width: 180 }, { key: 'api', title: 'API 策略', width: 260 }];
-const streamTargetColumns = [{ key: 'target', title: '服务与监听端口' }, { key: 'ip', title: 'IP 策略', width: 180 }];
+const streamTargetColumns = [{ key: 'target', title: '服务与监听端口' }, { key: 'ip', title: 'IP 策略', width: 120 }, { key: 'ipOrder', title: 'IP 冲突优先级', width: 190 }];
 const isSavingTarget = (kind: 'location' | 'server' | 'stream', id: string) => savingSetting.value.startsWith(`${kind}-${id}`);
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -181,10 +191,11 @@ function openIp(policy?: IpPolicy) {
 }
 function openApi(policy?: ApiPolicy) {
   editingApiId.value = policy?.id;
-  apiForm.value = policy ? { mode: policy.mode, priority: policy.priority, httpLocationId: policy.httpLocationId, enabled: policy.enabled, rules: policy.rules.map((rule) => ({ ...rule })) } : newApiForm();
+  apiForm.value = policy ? { mode: policy.mode, priority: policy.priority, scope: policy.scope, targetResourceId: policy.targetResourceId, enabled: policy.enabled, rules: policy.rules.map((rule) => ({ ...rule })) } : newApiForm();
   apiDrawerOpen.value = true;
 }
 function changeScope() { ipForm.value.targetResourceId = undefined; }
+function changeApiScope() { apiForm.value.targetResourceId = undefined; }
 function addRule() { apiForm.value.rules.push({ method: 'GET', path: '/' }); }
 function removeRule(index: number) { if (apiForm.value.rules.length > 1) apiForm.value.rules.splice(index, 1); }
 
@@ -201,8 +212,8 @@ async function saveIp() {
   } catch (error) { message.error(error instanceof Error ? error.message : '保存 IP 策略失败'); }
 }
 async function saveApi() {
-  if (!selectedCenterId.value || !apiForm.value.httpLocationId || !apiForm.value.rules.every((rule) => rule.method && rule.path)) {
-    message.warning('请选择接口并完整填写至少一条匹配规则'); return;
+  if (!selectedCenterId.value || !apiForm.value.targetResourceId || !apiForm.value.rules.every((rule) => rule.method && rule.path)) {
+    message.warning('请选择生效目标并完整填写至少一条匹配规则'); return;
   }
   try {
     const url = `/centers/${selectedCenterId.value}/api-policies${editingApiId.value ? `/${editingApiId.value}` : ''}`;
@@ -233,11 +244,23 @@ async function updateHttpServerSetting(server: HttpServer, field: 'apiPolicyEnab
   savingSetting.value = `server-${server.id}-${field}`;
   try {
     const updated = await request<HttpServer>(`/centers/${selectedCenterId.value}/http/servers/${server.id}/policy-settings`, {
-      method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: field === 'ipPolicyEnabled' ? checked : server.ipPolicyEnabled, apiPolicyEnabled: field === 'apiPolicyEnabled' ? checked : server.apiPolicyEnabled }),
+      method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: field === 'ipPolicyEnabled' ? checked : server.ipPolicyEnabled, apiPolicyEnabled: field === 'apiPolicyEnabled' ? checked : server.apiPolicyEnabled, ipPolicyModeOrder: server.ipPolicyModeOrder || 'BLACKLIST_FIRST', apiPolicyModeOrder: server.apiPolicyModeOrder || 'BLACKLIST_FIRST' }),
     });
     Object.assign(server, updated);
     message.success('域名与端口策略开关已更新，发布后生效');
   } catch (error) { message.error(error instanceof Error ? error.message : '更新策略开关失败'); }
+  finally { savingSetting.value = ''; }
+}
+async function updateHttpServerOrder(server: HttpServer, field: 'apiPolicyModeOrder' | 'ipPolicyModeOrder', value: ModeOrder) {
+  if (!selectedCenterId.value) return;
+  savingSetting.value = `server-${server.id}-${field}`;
+  try {
+    const updated = await request<HttpServer>(`/centers/${selectedCenterId.value}/http/servers/${server.id}/policy-settings`, {
+      method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: server.ipPolicyEnabled, apiPolicyEnabled: server.apiPolicyEnabled, ipPolicyModeOrder: field === 'ipPolicyModeOrder' ? value : server.ipPolicyModeOrder, apiPolicyModeOrder: field === 'apiPolicyModeOrder' ? value : server.apiPolicyModeOrder }),
+    });
+    Object.assign(server, updated);
+    message.success('策略冲突优先级已更新，发布后生效');
+  } catch (error) { message.error(error instanceof Error ? error.message : '更新优先级失败'); }
   finally { savingSetting.value = ''; }
 }
 async function updateLocationSetting(location: HttpLocation & { serverId: string }, field: 'apiPolicyEnabled' | 'ipPolicyEnabled', checked: boolean) {
@@ -256,10 +279,20 @@ async function updateStreamSetting(server: StreamServer, checked: boolean) {
   if (!selectedCenterId.value) return;
   savingSetting.value = `stream-${server.id}`;
   try {
-    const updated = await request<StreamServer>(`/centers/${selectedCenterId.value}/stream/servers/${server.id}/policy-settings`, { method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: checked }) });
+    const updated = await request<StreamServer>(`/centers/${selectedCenterId.value}/stream/servers/${server.id}/policy-settings`, { method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: checked, ipPolicyModeOrder: server.ipPolicyModeOrder || 'BLACKLIST_FIRST' }) });
     Object.assign(server, updated);
     message.success('四层 IP 策略开关已更新，发布后生效');
   } catch (error) { message.error(error instanceof Error ? error.message : '更新策略开关失败'); }
+  finally { savingSetting.value = ''; }
+}
+async function updateStreamOrder(server: StreamServer, value: ModeOrder) {
+  if (!selectedCenterId.value) return;
+  savingSetting.value = `stream-${server.id}-ipPolicyModeOrder`;
+  try {
+    const updated = await request<StreamServer>(`/centers/${selectedCenterId.value}/stream/servers/${server.id}/policy-settings`, { method: 'PUT', body: JSON.stringify({ ipPolicyEnabled: server.ipPolicyEnabled, ipPolicyModeOrder: value }) });
+    Object.assign(server, updated);
+    message.success('四层 IP 策略冲突优先级已更新，发布后生效');
+  } catch (error) { message.error(error instanceof Error ? error.message : '更新优先级失败'); }
   finally { savingSetting.value = ''; }
 }
 
@@ -285,7 +318,9 @@ onMounted(loadCenters);
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'"><span class="font-medium">{{ record.domain }}</span><span class="ml-1 text-gray-500">:{{ record.listenPort }}</span></template>
               <template v-else-if="column.key === 'ip'"><a-switch :checked="record.ipPolicyEnabled" :disabled="isSavingTarget('server', record.id)" :loading="savingSetting === `server-${record.id}-ipPolicyEnabled`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateHttpServerSetting(record, 'ipPolicyEnabled', checked)" /></template>
+              <template v-else-if="column.key === 'ipOrder'"><a-select :value="record.ipPolicyModeOrder" class="w-40" :options="modeOrderOptions" @change="(value: ModeOrder) => updateHttpServerOrder(record, 'ipPolicyModeOrder', value)" /></template>
               <template v-else-if="column.key === 'api'"><a-switch :checked="record.apiPolicyEnabled" :disabled="isSavingTarget('server', record.id)" :loading="savingSetting === `server-${record.id}-apiPolicyEnabled`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateHttpServerSetting(record, 'apiPolicyEnabled', checked)" /></template>
+              <template v-else-if="column.key === 'apiOrder'"><a-select :value="record.apiPolicyModeOrder" class="w-40" :options="modeOrderOptions" @change="(value: ModeOrder) => updateHttpServerOrder(record, 'apiPolicyModeOrder', value)" /></template>
             </template>
           </a-table>
         </a-tab-pane>
@@ -302,6 +337,7 @@ onMounted(loadCenters);
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">{{ record.serviceName }}:{{ record.listenPort }}（{{ record.protocol }}）</template>
               <template v-else-if="column.key === 'ip'"><a-switch :checked="record.ipPolicyEnabled" :disabled="isSavingTarget('stream', record.id)" :loading="savingSetting === `stream-${record.id}`" checked-children="已开启" un-checked-children="已关闭" @change="(checked) => updateStreamSetting(record, checked)" /></template>
+              <template v-else-if="column.key === 'ipOrder'"><a-select :value="record.ipPolicyModeOrder" class="w-40" :options="modeOrderOptions" @change="(value: ModeOrder) => updateStreamOrder(record, value)" /></template>
             </template>
           </a-table>
         </a-tab-pane>
@@ -326,10 +362,10 @@ onMounted(loadCenters);
       </a-col>
       <a-col :lg="12" :xs="24" class="max-lg:mt-4">
         <a-card :bordered="false" :loading="loading" title="接口访问策略">
-          <template #extra><a-button :disabled="!selectedCenterId || !locations.length" type="primary" @click="openApi()">新增接口策略</a-button></template>
+          <template #extra><a-button :disabled="!selectedCenterId || (!locations.length && !servers.length)" type="primary" @click="openApi()">新增接口策略</a-button></template>
           <a-table :columns="apiColumns" :data-source="apiRows" :pagination="apiPager.table.value" @change="(p:any)=>changePolicyPage('api',p)" row-key="id" size="small">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'location'">{{ locationLabel(record.httpLocationId) }}</template>
+              <template v-if="column.key === 'target'">{{ apiTargetLabel(record) }}</template>
               <template v-else-if="column.key === 'mode'"><a-tag :color="record.mode === 'BLACKLIST' ? 'red' : 'green'">{{ modeLabel(record.mode) }}</a-tag></template>
               <template v-else-if="column.key === 'rules'"><a-tag v-for="rule in record.rules" :key="`${rule.method}-${rule.path}`">{{ rule.method }} {{ rule.path }}</a-tag></template>
               <template v-else-if="column.key === 'enabled'"><a-tag :color="apiPolicyEffective(record) ? 'green' : 'default'">{{ apiPolicyEffective(record) ? '已具备条件' : '配置未启用' }}</a-tag></template>
@@ -355,7 +391,7 @@ onMounted(loadCenters);
     <a-drawer v-model:open="apiDrawerOpen" :title="editingApiId ? '编辑接口策略' : '新增接口策略'" :width="680">
       <a-form layout="vertical">
         <a-row :gutter="16"><a-col :span="12"><a-form-item label="策略模式" required><a-select v-model:value="apiForm.mode" :options="modeOptions" /></a-form-item></a-col><a-col :span="12"><a-form-item label="优先级" extra="数值越小越优先。"><a-input-number v-model:value="apiForm.priority" class="w-full" :min="0" /></a-form-item></a-col></a-row>
-        <a-form-item label="生效接口" required><a-select v-model:value="apiForm.httpLocationId" :options="locationOptions" placeholder="请选择 HTTP Location" /></a-form-item>
+        <a-row :gutter="16"><a-col :span="10"><a-form-item label="生效范围" required><a-select v-model:value="apiForm.scope" :options="apiScopeOptions" @change="changeApiScope" /></a-form-item></a-col><a-col :span="14"><a-form-item label="生效目标" required><a-select v-model:value="apiForm.targetResourceId" :options="apiTargetOptions" placeholder="请选择域名端口或 Location" /></a-form-item></a-col></a-row>
         <a-form-item label="启用状态"><a-switch v-model:checked="apiForm.enabled" checked-children="启用" un-checked-children="停用" /></a-form-item>
         <a-divider orientation="left">匹配规则</a-divider>
         <div v-for="(rule, index) in apiForm.rules" :key="index" class="mb-3 flex gap-2">

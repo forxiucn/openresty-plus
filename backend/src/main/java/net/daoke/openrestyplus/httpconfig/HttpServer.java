@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -12,6 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.UUID;
+import net.daoke.openrestyplus.policy.PolicyModeOrder;
 
 @Entity
 @Table(name = "http_server", uniqueConstraints = @UniqueConstraint(
@@ -30,6 +32,12 @@ public class HttpServer {
     @Column(name = "error_log", nullable = false, length = 512) private String errorLog;
     @Column(name = "ip_policy_enabled", nullable = false) private boolean ipPolicyEnabled;
     @Column(name = "api_policy_enabled", nullable = false) private boolean apiPolicyEnabled;
+    @Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "ip_policy_mode_order", nullable = false, length = 24)
+    private PolicyModeOrder ipPolicyModeOrder = PolicyModeOrder.BLACKLIST_FIRST;
+    @Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "api_policy_mode_order", nullable = false, length = 24)
+    private PolicyModeOrder apiPolicyModeOrder = PolicyModeOrder.BLACKLIST_FIRST;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpServer() { }
@@ -61,8 +69,13 @@ public class HttpServer {
     public String getErrorLog() { return errorLog; }
     public boolean isIpPolicyEnabled() { return ipPolicyEnabled; }
     public boolean isApiPolicyEnabled() { return apiPolicyEnabled; }
-    public void applyPolicySettings(boolean ipPolicyEnabled, boolean apiPolicyEnabled) {
+    public PolicyModeOrder getIpPolicyModeOrder() { return ipPolicyModeOrder; }
+    public PolicyModeOrder getApiPolicyModeOrder() { return apiPolicyModeOrder; }
+    public void applyPolicySettings(boolean ipPolicyEnabled, boolean apiPolicyEnabled,
+                                    PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder) {
         this.ipPolicyEnabled = ipPolicyEnabled;
         this.apiPolicyEnabled = apiPolicyEnabled;
+        this.ipPolicyModeOrder = ipPolicyModeOrder;
+        this.apiPolicyModeOrder = apiPolicyModeOrder;
     }
 }

@@ -6,5 +6,5 @@ import java.util.UUID;
 
 public interface ApiPolicyRepository extends JpaRepository<ApiPolicy, UUID> {
     List<ApiPolicy> findByCenterIdOrderByPriorityAscIdAsc(UUID centerId);
-    List<ApiPolicy> findByCenterIdAndHttpLocationIdOrderByPriorityAscIdAsc(UUID centerId, UUID httpLocationId);
+    List<ApiPolicy> findByCenterIdAndScopeAndTargetResourceIdOrderByPriorityAscIdAsc(UUID centerId, ApiPolicyScope scope, UUID targetResourceId);
 }
