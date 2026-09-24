@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import net.daoke.openrestyplus.center.CenterRepository;
 import net.daoke.openrestyplus.audit.AuditService;
+import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
+import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,11 +23,17 @@ import java.util.UUID;
 public class ApiPolicyController {
     private final CenterRepository centers;
     private final ApiPolicyRepository policies;
+    private final HttpLocationRepository httpLocations;
+    private final HttpServerRepository httpServers;
     private final AuditService audit;
 
-    public ApiPolicyController(CenterRepository centers, ApiPolicyRepository policies, AuditService audit) {
+    public ApiPolicyController(CenterRepository centers, ApiPolicyRepository policies,
+                               HttpLocationRepository httpLocations, HttpServerRepository httpServers,
+                               AuditService audit) {
         this.centers = centers;
         this.policies = policies;
+        this.httpLocations = httpLocations;
+        this.httpServers = httpServers;
         this.audit = audit;
     }
 
@@ -41,12 +49,14 @@ public class ApiPolicyController {
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
     public View create(@PathVariable UUID centerId, @Valid @RequestBody Request request) {
         requireCenter(centerId);
+        validateLocation(centerId, request.httpLocationId());
         var saved = policies.save(toPolicy(centerId, request));
         audit.success(centerId, "API_POLICY_CREATED", "API_POLICY", saved.getId());
         return View.from(saved);
     }
     @PutMapping("/{policyId}")
     public View update(@PathVariable UUID centerId, @PathVariable UUID policyId, @Valid @RequestBody Request request) {
+        validateLocation(centerId, request.httpLocationId());
         var policy = requirePolicy(centerId, policyId);
         policy.apply(request.mode(), request.priority(), request.httpLocationId(), request.enabled(), toRules(request.rules()));
         var saved = policies.save(policy);
@@ -84,6 +94,13 @@ public class ApiPolicyController {
         return rules.stream().map(rule -> new ApiPolicyRule(rule.method().toUpperCase(Locale.ROOT), rule.path())).toList();
     }
     private void requireCenter(UUID centerId) { if (!centers.existsById(centerId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Center not found"); }
+    private void validateLocation(UUID centerId, UUID locationId) {
+        boolean belongsToCenter = httpLocations.findById(locationId)
+            .flatMap(location -> httpServers.findByIdAndCenterId(location.getServerId(), centerId))
+            .isPresent();
+        if (!belongsToCenter) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+            "The API policy target does not belong to this center");
+    }
     private ApiPolicy requirePolicy(UUID centerId, UUID policyId) {
         requireCenter(centerId);
         return policies.findById(policyId).filter(value -> value.getCenterId().equals(centerId))

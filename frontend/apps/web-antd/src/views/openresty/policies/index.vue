@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 
 import { message } from 'ant-design-vue';
+import MetricGrid from '#/components/operations/MetricGrid.vue';
 
 type Center = { id: string; code: string; name: string };
 type HttpServer = { id: string; domain: string; listenPort: number };
@@ -51,6 +52,7 @@ const targetOptions = computed(() => {
   return streamServers.value.map((value) => ({ value: value.id, label: `${value.serviceName}:${value.listenPort}（${value.protocol}）` }));
 });
 const locationOptions = computed(() => locations.value.map((value) => ({ value: value.id, label: value.label })));
+const reportMetrics = computed(() => [{ label: 'IP 策略', value: ipPolicies.value.length, suffix: '条', hint: `${ipPolicies.value.filter((item) => item.enabled).length} 条已启用`, tone: 'blue' }, { label: 'API 策略', value: apiPolicies.value.length, suffix: '条', hint: `${apiPolicies.value.reduce((sum, item) => sum + item.rules.length, 0)} 条匹配规则`, tone: 'purple' }, { label: '黑名单', value: [...ipPolicies.value, ...apiPolicies.value].filter((item) => item.mode === 'BLACKLIST').length, suffix: '条', hint: '命中后拒绝', tone: 'red' }, { label: '白名单', value: [...ipPolicies.value, ...apiPolicies.value].filter((item) => item.mode === 'WHITELIST').length, suffix: '条', hint: '仅允许命中项', tone: 'green' }]);
 const locationLabel = (id: string) => locations.value.find((value) => value.id === id)?.label || '配置已删除';
 const targetLabel = (policy: IpPolicy) => {
   if (policy.scope === 'HTTP_SERVER') return servers.value.find((value) => value.id === policy.targetResourceId) ? `${servers.value.find((value) => value.id === policy.targetResourceId)?.domain}:${servers.value.find((value) => value.id === policy.targetResourceId)?.listenPort}` : '配置已删除';
@@ -164,12 +166,20 @@ async function removePolicy(type: 'api' | 'ip', id: string) {
     message.success(type === 'ip' ? 'IP 策略已删除' : '接口策略已删除');
   } catch (error) { message.error(error instanceof Error ? error.message : '删除策略失败'); }
 }
+async function movePolicy(type: 'api' | 'ip', id: string, direction: 'UP' | 'DOWN') {
+  if (!selectedCenterId.value) return;
+  try {
+    const result = await request<IpPolicy[] | ApiPolicy[]>(`/centers/${selectedCenterId.value}/${type}-policies/${id}/move?direction=${direction}`, { method: 'POST' });
+    if (type === 'ip') ipPolicies.value = result as IpPolicy[];
+    else apiPolicies.value = result as ApiPolicy[];
+  } catch (error) { message.error(error instanceof Error ? error.message : '调整策略顺序失败'); }
+}
 
 onMounted(loadCenters);
 </script>
 
 <template>
-  <div class="p-5">
+  <div class="ops-page">
     <a-card :bordered="false" title="访问策略管理">
       <a-alert class="mb-4" show-icon type="info" message="策略保存后需在“版本与审计”中发布，运行中的 OpenResty 节点会读取最新快照。数值越小，优先级越高。" />
       <a-form layout="inline">
@@ -177,7 +187,9 @@ onMounted(loadCenters);
       </a-form>
     </a-card>
 
-    <a-row class="mt-5" :gutter="16">
+    <metric-grid :metrics="reportMetrics" />
+
+    <a-row :gutter="[24,24]">
       <a-col :lg="12" :xs="24">
         <a-card :bordered="false" :loading="loading" title="IP 访问策略">
           <template #extra><a-button :disabled="!selectedCenterId" type="primary" @click="openIp()">新增 IP 策略</a-button></template>
@@ -188,7 +200,7 @@ onMounted(loadCenters);
               <template v-else-if="column.key === 'mode'"><a-tag :color="record.mode === 'BLACKLIST' ? 'red' : 'green'">{{ modeLabel(record.mode) }}</a-tag></template>
               <template v-else-if="column.key === 'ipRules'"><a-tag v-for="item in record.ipRules" :key="item">{{ item }}</a-tag></template>
               <template v-else-if="column.key === 'enabled'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '已启用' : '未启用' }}</a-tag></template>
-              <template v-else-if="column.key === 'action'"><a-button type="link" @click="openIp(record)">编辑</a-button><a-popconfirm title="确认删除该 IP 策略？" @confirm="removePolicy('ip', record.id)"><a-button danger type="link">删除</a-button></a-popconfirm></template>
+              <template v-else-if="column.key === 'action'"><a-space><a-button type="link" @click="movePolicy('ip', record.id, 'UP')">上移</a-button><a-button type="link" @click="movePolicy('ip', record.id, 'DOWN')">下移</a-button><a-button type="link" @click="openIp(record)">编辑</a-button><a-popconfirm title="确认删除该 IP 策略？" @confirm="removePolicy('ip', record.id)"><a-button danger type="link">删除</a-button></a-popconfirm></a-space></template>
             </template>
           </a-table>
         </a-card>
@@ -202,7 +214,7 @@ onMounted(loadCenters);
               <template v-else-if="column.key === 'mode'"><a-tag :color="record.mode === 'BLACKLIST' ? 'red' : 'green'">{{ modeLabel(record.mode) }}</a-tag></template>
               <template v-else-if="column.key === 'rules'"><a-tag v-for="rule in record.rules" :key="`${rule.method}-${rule.path}`">{{ rule.method }} {{ rule.path }}</a-tag></template>
               <template v-else-if="column.key === 'enabled'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '已启用' : '未启用' }}</a-tag></template>
-              <template v-else-if="column.key === 'action'"><a-button type="link" @click="openApi(record)">编辑</a-button><a-popconfirm title="确认删除该接口策略？" @confirm="removePolicy('api', record.id)"><a-button danger type="link">删除</a-button></a-popconfirm></template>
+              <template v-else-if="column.key === 'action'"><a-space><a-button type="link" @click="movePolicy('api', record.id, 'UP')">上移</a-button><a-button type="link" @click="movePolicy('api', record.id, 'DOWN')">下移</a-button><a-button type="link" @click="openApi(record)">编辑</a-button><a-popconfirm title="确认删除该接口策略？" @confirm="removePolicy('api', record.id)"><a-button danger type="link">删除</a-button></a-popconfirm></a-space></template>
             </template>
           </a-table>
         </a-card>

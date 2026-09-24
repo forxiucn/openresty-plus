@@ -62,7 +62,18 @@ function _M.enforce()
   local server_id = current_server(content)
   if not server_id then return end
   local client_ip = ngx.var.remote_addr or ""
+  local policies = {}
   for _, policy in ipairs(content.ipPolicies or {}) do
+    if policy.scope == "STREAM" and tostring(policy.targetResourceId) == tostring(server_id) then
+      policies[#policies + 1] = policy
+    end
+  end
+  table.sort(policies, function(left, right)
+    local lp, rp = tonumber(left.priority) or 0, tonumber(right.priority) or 0
+    if lp ~= rp then return lp < rp end
+    return tostring(left.id or "") < tostring(right.id or "")
+  end)
+  for _, policy in ipairs(policies) do
     if policy.enabled and policy.scope == "STREAM" and tostring(policy.targetResourceId) == tostring(server_id) then
       local matches = ip_matches(client_ip, policy.ipRules)
       if (policy.mode == "BLACKLIST" and matches) or (policy.mode == "WHITELIST" and not matches) then
