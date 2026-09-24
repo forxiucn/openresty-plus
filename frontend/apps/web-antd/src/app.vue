@@ -62,9 +62,20 @@ function installDrawerResizeHandles() {
     wrapper.append(handle);
   });
 }
+function installHelpHints() {
+  document.querySelectorAll<HTMLElement>('.ops-page .ant-alert').forEach((alert) => {
+    if (alert.dataset.helpReady === 'true') return;
+    alert.dataset.helpReady = 'true';
+    alert.setAttribute('title', '点击查看说明');
+  });
+}
 onMounted(() => {
   installDrawerResizeHandles();
-  drawerObserver = new MutationObserver(installDrawerResizeHandles);
+  installHelpHints();
+  drawerObserver = new MutationObserver(() => {
+    installDrawerResizeHandles();
+    installHelpHints();
+  });
   drawerObserver.observe(document.body, { childList: true, subtree: true });
   document.addEventListener('click', toggleHelpAlert);
 });
@@ -84,8 +95,11 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); document.removeEventListen
 .global-drawer-resize-handle::after { position: absolute; top: 50%; left: 2px; width: 4px; height: 42px; border-radius: 4px; background: var(--ant-color-border); content: ''; transform: translateY(-50%); opacity: .75; }
 .global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
 .global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
-.ops-page .ant-alert:not(.ops-help-expanded) { width: 28px; min-height: 28px; padding: 0; overflow: hidden; cursor: pointer; border-radius: 50%; border-color: var(--ant-color-primary-border); background: var(--ant-color-primary-bg); }
-.ops-page .ant-alert:not(.ops-help-expanded)::before { display: grid; width: 26px; height: 26px; place-items: center; content: '?'; color: var(--ant-color-primary); font-weight: 700; }
+.ops-page .ant-alert:not(.ops-help-expanded) { width: 30px; min-height: 30px; padding: 0; overflow: hidden; cursor: pointer; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
+.ops-page .ant-alert:not(.ops-help-expanded)::before { display: grid; width: 28px; height: 28px; place-items: center; content: 'ⓘ'; color: var(--ant-color-primary); font-size: 16px; font-weight: 600; }
 .ops-page .ant-alert:not(.ops-help-expanded) > * { display: none; }
-.ops-page .ant-alert.ops-help-expanded { cursor: pointer; }
+.ops-page .ant-alert:not(.ops-help-expanded):hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
+.ops-page .ant-alert.ops-help-expanded { max-width: 100%; margin: 10px 0 14px; cursor: pointer; border-radius: 8px; box-shadow: 0 4px 14px rgb(0 0 0 / 10%); }
+.ops-page .ant-alert.ops-help-expanded .ant-alert-message { font-weight: 600; }
+.ops-page .ant-alert.ops-help-expanded .ant-alert-description { line-height: 1.65; }
 </style>
