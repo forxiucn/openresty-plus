@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { useTemplateRef } from 'vue';
+
 import { Settings } from '@vben/icons';
 
 import { VbenIconButton } from '@vben-core/shadcn-ui';
@@ -6,14 +8,25 @@ import { VbenIconButton } from '@vben-core/shadcn-ui';
 import Preferences from './preferences.vue';
 
 const emit = defineEmits<{ clearPreferencesAndLogout: [] }>();
+const refPreferences = useTemplateRef('refPreferences');
 
 function clearPreferencesAndLogout() {
   emit('clearPreferencesAndLogout');
 }
+
+function openPreferences() {
+  refPreferences.value?.open();
+}
 </script>
 <template>
-  <Preferences @clear-preferences-and-logout="clearPreferencesAndLogout">
-    <VbenIconButton class="hover:animate-[shrink_0.3s_ease-in-out]">
+  <Preferences
+    ref="refPreferences"
+    @clear-preferences-and-logout="clearPreferencesAndLogout"
+  >
+    <VbenIconButton
+      class="hover:animate-[shrink_0.3s_ease-in-out]"
+      @click="openPreferences"
+    >
       <Settings class="size-4 text-foreground" />
     </VbenIconButton>
   </Preferences>
