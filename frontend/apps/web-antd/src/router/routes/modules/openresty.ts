@@ -13,7 +13,7 @@ const routes: RouteRecordRaw[] = [
     path: '/openresty/centers',
   },
   {
-    component: () => import('#/views/openresty/http-config/index.vue'),
+    component: () => import('#/views/openresty/http-overview/index.vue'),
     meta: {
       icon: 'lucide:globe-2',
       order: -9,
@@ -22,6 +22,7 @@ const routes: RouteRecordRaw[] = [
     name: 'HttpConfigurationManagement',
     path: '/openresty/http-config',
   },
+  { component: () => import('#/views/openresty/http-server/index.vue'), meta: { hideInMenu: true, title: 'Server 配置' }, name: 'HttpServerDetail', path: '/openresty/http-servers' },
   {
     component: () => import('#/views/openresty/http-location/index.vue'),
     meta: { hideInMenu: true, icon: 'lucide:waypoints', title: 'Location 配置' },
