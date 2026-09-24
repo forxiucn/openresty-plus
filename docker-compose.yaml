@@ -60,6 +60,17 @@ services:
     depends_on:
       - control-plane
 
+  node-registration:
+    build:
+      context: ./deploy
+    network_mode: host
+    environment:
+      CONTROL_PLANE_URL: http://127.0.0.1:8080
+      CENTER_ID: c62981ca-9bb7-4ab4-b871-5c9943efe84d
+    entrypoint: ["/opt/openresty-plus/scripts/register-compose-nodes.sh"]
+    depends_on:
+      - control-plane
+
   deploy-tools:
     network_mode: host
     build:
