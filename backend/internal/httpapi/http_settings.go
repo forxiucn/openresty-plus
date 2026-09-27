@@ -60,6 +60,8 @@ func (server *Server) putHTTPSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid HTTP settings")
 		return
 	}
+	value.HTTPLogFormat = normalizeLogFormat(value.HTTPLogFormat, "openresty_plus", defaultHTTPLogFormat)
+	value.StreamLogFormat = normalizeLogFormat(value.StreamLogFormat, "openresty_plus_stream", defaultStreamLogFormat)
 	headers, _ := json.Marshal(value.ResponseHeaders)
 	pages, _ := json.Marshal(value.DefaultPages)
 	errors, _ := json.Marshal(value.ErrorPages)
@@ -78,6 +80,8 @@ func (server *Server) loadHTTPSettings(center uuid.UUID) (httpSettings, error) {
 	err := server.db.QueryRow(`SELECT root_path,hide_version,response_headers,sendfile_enabled,tcp_nopush_enabled,tcp_nodelay_enabled,keepalive_timeout_seconds,client_max_body_size,client_header_buffer_size,large_client_header_buffers,server_names_hash_bucket_size,gzip_enabled,gzip_min_length,gzip_comp_level,http_log_format,stream_log_format,default_pages,default_page_key,error_pages FROM http_configuration WHERE center_id=?`, center[:]).Scan(&value.RootPath, &value.HideVersion, &headers, &value.SendfileEnabled, &value.TCPNopushEnabled, &value.TCPNodelayEnabled, &value.KeepaliveTimeoutSeconds, &value.ClientMaxBodySize, &value.ClientHeaderBufferSize, &value.LargeClientHeaderBuffers, &value.ServerNamesHashBucketSize, &value.GzipEnabled, &value.GzipMinLength, &value.GzipCompLevel, &value.HTTPLogFormat, &value.StreamLogFormat, &pages, &defaultPageKey, &errors)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			value.HTTPLogFormat = logFormatBody(value.HTTPLogFormat, "openresty_plus")
+			value.StreamLogFormat = logFormatBody(value.StreamLogFormat, "openresty_plus_stream")
 			return value, nil
 		}
 		return value, err
@@ -94,7 +98,41 @@ func (server *Server) loadHTTPSettings(center uuid.UUID) (httpSettings, error) {
 	if value.ErrorPages == nil {
 		value.ErrorPages = map[string]string{}
 	}
+	value.HTTPLogFormat = logFormatBody(value.HTTPLogFormat, "openresty_plus")
+	value.StreamLogFormat = logFormatBody(value.StreamLogFormat, "openresty_plus_stream")
 	return value, nil
+}
+
+func normalizeLogFormat(value, identifier, fallback string) string {
+	body := logFormatBody(value, identifier)
+	if body == "" {
+		return fallback
+	}
+	return identifier + " " + body
+}
+
+func logFormatBody(value, identifier string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, identifier+" ") {
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, identifier))
+	}
+	parts := strings.SplitN(trimmed, " ", 2)
+	if len(parts) == 2 && isLogFormatIdentifier(parts[0]) {
+		return strings.TrimSpace(parts[1])
+	}
+	return trimmed
+}
+
+func isLogFormatIdentifier(value string) bool {
+	if value == "" || value[0] == '$' || value[0] == '\'' || value[0] == '"' || value[0] == '{' || value[0] == '[' {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 var headerPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}: [^\r\n]*$`)
