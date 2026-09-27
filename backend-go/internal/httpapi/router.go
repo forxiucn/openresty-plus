@@ -40,6 +40,17 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/centers/{centerID}/http/servers", server.createHTTPServer)
 	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}", server.updateHTTPServer)
 	mux.HandleFunc("DELETE /api/centers/{centerID}/http/servers/{serverID}", server.deleteHTTPServer)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/policy-settings", server.putHTTPServerPolicySettings)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/directives", server.putHTTPServerDirectives)
+	mux.HandleFunc("GET /api/centers/{centerID}/http/servers/locations/paged", server.pageCenterHTTPLocations)
+	mux.HandleFunc("GET /api/centers/{centerID}/http/servers/{serverID}/locations", server.listHTTPLocations)
+	mux.HandleFunc("GET /api/centers/{centerID}/http/servers/{serverID}/locations/paged", server.pageHTTPLocations)
+	mux.HandleFunc("POST /api/centers/{centerID}/http/servers/{serverID}/locations", server.createHTTPLocation)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}", server.updateHTTPLocation)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}", server.deleteHTTPLocation)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/policy-settings", server.putHTTPLocationPolicySettings)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/directives", server.putHTTPLocationDirectives)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/dynamic-dns", server.putHTTPLocationDynamicDNS)
 	return mux
 }
 
