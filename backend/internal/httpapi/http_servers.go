@@ -175,7 +175,7 @@ func (server *Server) updateHTTPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	count, _ := result.RowsAffected()
-	if count == 0 {
+	if count == 0 && !serverExists(center, id, server.db) {
 		writeError(w, 404, "HTTP server not found")
 		return
 	}
