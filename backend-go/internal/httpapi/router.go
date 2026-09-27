@@ -67,6 +67,11 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/centers/{centerID}/stream/servers/{streamServerID}", server.deleteStreamServer)
 	mux.HandleFunc("PUT /api/centers/{centerID}/stream/servers/{streamServerID}/dynamic-dns", server.putStreamServerDynamicDNS)
 	mux.HandleFunc("PUT /api/centers/{centerID}/stream/servers/{streamServerID}/policy-settings", server.putStreamServerPolicySettings)
+	mux.HandleFunc("GET /api/centers/{centerID}/dns-resolvers", server.listDNSResolvers)
+	mux.HandleFunc("GET /api/centers/{centerID}/dns-resolvers/paged", server.pageDNSResolvers)
+	mux.HandleFunc("POST /api/centers/{centerID}/dns-resolvers", server.createDNSResolver)
+	mux.HandleFunc("PUT /api/centers/{centerID}/dns-resolvers/{resolverID}", server.updateDNSResolver)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/dns-resolvers/{resolverID}", server.deleteDNSResolver)
 	return mux
 }
 
