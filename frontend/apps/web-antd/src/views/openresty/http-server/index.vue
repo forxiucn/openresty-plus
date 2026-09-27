@@ -33,6 +33,7 @@ type Server = {
   rootPath?: string;
   hideVersion: boolean;
   responseHeaders: string[];
+  errorPages?: Record<string, string>;
 };
 type Center = { id: string; name: string; code: string };
 type Certificate = { id: string; name: string; commonName: string };
@@ -43,9 +44,9 @@ const route = useRoute(),
   certificates = ref<Certificate[]>([]),
   selectedSection = ref<string[]>(['domain']),
   centerId = String(route.query.centerId || ''),
-  serverId = String(route.query.serverId || ''),
   tab = ref('basic'),
   savingIdentity = ref(false);
+let serverId = String(route.query.serverId || '');
 const section = computed(() => selectedSection.value[0] || 'domain');
 const labels: { key: string; label: string }[] = [
   ['domain', '域名设置'],
@@ -115,19 +116,49 @@ async function load() {
 async function save() {
   if (!server.value) return;
   try {
-    await request(`/centers/${centerId}/http/servers/${serverId}/directives`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        rootPath: server.value.rootPath,
-        hideVersion: server.value.hideVersion,
-        responseHeaders: server.value.responseHeaders,
-      }),
-    });
+    await saveDirectives();
     window.dispatchEvent(new Event('openresty-config-saved'));
     message.success('Server 配置已保存，发布后生效');
-  } catch {
-    message.error('保存失败');
+  } catch (error) {
+    if (isServerNotFound(error) && (await refreshServerId())) {
+      try {
+        await saveDirectives();
+        window.dispatchEvent(new Event('openresty-config-saved'));
+        message.success('Server 配置已保存，发布后生效');
+        return;
+      } catch (retryError) {
+        error = retryError;
+      }
+    }
+    message.error(error instanceof Error ? error.message : '保存失败');
   }
+}
+async function saveDirectives() {
+  if (!server.value) return;
+  await request(`/centers/${centerId}/http/servers/${serverId}/directives`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      rootPath: server.value.rootPath,
+      hideVersion: server.value.hideVersion,
+      responseHeaders: server.value.responseHeaders,
+      errorPages: server.value.errorPages || {},
+    }),
+  });
+}
+function isServerNotFound(error: unknown) {
+  return error instanceof Error && error.message.includes('HTTP server not found');
+}
+async function refreshServerId() {
+  if (!server.value) return false;
+  const all = await request<Server[]>(`/centers/${centerId}/http/servers`);
+  const current = all.find((item) => item.id === serverId)
+    || all.find((item) => item.domain === server.value?.domain && item.listenPort === server.value?.listenPort);
+  if (!current) return false;
+  if (current.id !== serverId) {
+    serverId = current.id;
+    await router.replace({ query: { ...route.query, serverId } });
+  }
+  return true;
 }
 async function saveIdentity() {
   if (!server.value) return;
@@ -145,6 +176,9 @@ async function saveIdentity() {
   }
   savingIdentity.value = true;
   try {
+    if (!(await refreshServerId())) {
+      throw new Error('HTTP server not found');
+    }
     const updated = await request<Server>(`/centers/${centerId}/http/servers/${serverId}`, {
       method: 'PUT',
       body: JSON.stringify({
