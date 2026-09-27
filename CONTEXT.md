@@ -2,7 +2,7 @@
 
 ## 领域边界
 
-本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。MySQL 保存结构化配置、不可变版本快照和审计；Spring Boot 控制面负责校验、生成原生配置和发布编排；管理 Web 提供可视化操作；OpenResty Lua 负责已发布运行时快照，Control API 负责原生配置 reload；Filebeat 将节点日志发送到 Kafka，控制面再通过 SSE 推送到 Web 控制台。
+本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。MySQL 保存结构化配置、不可变版本快照和审计；当前 Compose 使用 Go 控制面处理已迁移的资源管理 API，Java 控制面保留为尚未迁移的发布、渲染、版本与日志能力的参考实现；管理 Web 提供可视化操作；OpenResty Lua 负责已发布运行时快照，Control API 负责原生配置 reload；Filebeat 将节点日志发送到 Kafka。
 
 ## 术语
 
@@ -48,7 +48,7 @@ Web 保存只更新 MySQL。发布运行时配置后，OpenResty Lua 默认每 5
 
 ### MVP 范围
 
-当前可运行版本包含中心/节点/监听器资源管理、配置浏览与版本差异、IP/API 策略模块及资源绑定启停、运行时快照发布、原生配置渲染、Control API reload、逐节点结果和完整审计。限速、DNS、健康检查及 HTTP/Stream 指令由 MySQL 配置和页面管理。
+当前 Go Compose 可运行版本包含中心、节点、HTTP/Stream、TLS、DNS Resolver 和审计查询等资源管理 API。配置版本、差异、原生配置渲染、Control API reload、完整发布、策略资源管理、节点指标及 Kafka/SSE 日志仍由 Java 实现保存，尚未迁移到 Go 控制面；这些 API 在当前 Go Compose 服务中不可用。
 
 ### 开发依赖凭据
 
@@ -56,17 +56,17 @@ MySQL 和 Redis 仅作为外置开发依赖通过环境变量或本地未提交�
 
 ### 工程命名
 
-仓库采用 `openresty-plus` 命名；后端目录为 `backend`，前端目录为 `frontend`，脚本目录为 `deploy`，运行时渲染目录为 `runtime/native-config`。后端应用名为 `openresty-plus-control-plane`，前端应用名为 `openresty-plus-console`，完整 Java 基础包名为 `net.daoke.openrestyplus`。
+仓库采用 `openresty-plus` 命名；当前 Compose 后端目录为 `backend-go`，Java 参考实现目录为 `backend`，前端目录为 `frontend`，脚本目录为 `deploy`，运行时渲染目录为 `runtime/native-config`。Go 与 Java 控制面都使用 `openresty-plus-control-plane` 作为服务名；完整 Java 基础包名为 `net.daoke.openrestyplus`。
 
 前端固定使用官方 Vben Admin `v5.7.0` tag，对应 Node 22.18.0 LTS 和 pnpm 10.33.4；不将固定 tag 与官方 `main` 的工具版本混用。
 
 ### 后端构建
 
-后端使用 Maven 构建，Spring Boot 依赖、Flyway 迁移、质量检查和镜像构建统一纳入 Maven 生命周期。
+Go 控制面使用 Go 1.26、`go test ./...` 和 `go vet ./...`；Docker 镜像由 `backend-go/Dockerfile` 构建。Java 参考实现仍使用 Maven 构建。
 
 ### 后端版本基线
 
-后端采用 Spring Boot 4.1.1、Java 21 LTS 和 Maven 3.9+，依赖 Jakarta 命名空间及 Spring Boot 4 兼容版本。
+当前运行后端采用 Go 1.26。Java 参考实现采用 Spring Boot 4.1.1、Java 21 LTS 和 Maven 3.9+，依赖 Jakarta 命名空间及 Spring Boot 4 兼容版本。
 
 ### API 契约
 
@@ -74,7 +74,7 @@ MySQL 和 Redis 仅作为外置开发依赖通过环境变量或本地未提交�
 
 ### 异步任务
 
-当前发布和 reload 编排由 Spring Boot 服务直接执行；Redis 作为外部可选依赖，不是配置权威来源。MySQL 保存版本、节点结果和审计证据。
+发布和 reload 编排当前只由 Java 服务执行；Go 控制面尚未迁移这些接口。Redis 是外部可选依赖，不是配置权威来源；MySQL 保存版本、节点结果和审计证据。
 
 ### 数据库迁移
 
