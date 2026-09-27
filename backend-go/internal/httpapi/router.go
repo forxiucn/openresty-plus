@@ -24,6 +24,7 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/centers/{centerID}/nodes", server.createNode)
 	mux.HandleFunc("PUT /api/centers/{centerID}/nodes/{nodeID}", server.updateNode)
 	mux.HandleFunc("DELETE /api/centers/{centerID}/nodes/{nodeID}", server.deleteNode)
+	mux.HandleFunc("GET /api/centers/{centerID}/node-metrics", server.listNodeMetrics)
 	mux.HandleFunc("GET /api/centers/{centerID}/http/upstreams", server.listHTTPUpstreams)
 	mux.HandleFunc("GET /api/centers/{centerID}/http/upstreams/paged", server.pageHTTPUpstreams)
 	mux.HandleFunc("POST /api/centers/{centerID}/http/upstreams", server.createHTTPUpstream)
