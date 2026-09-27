@@ -51,6 +51,10 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/policy-settings", server.putHTTPLocationPolicySettings)
 	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/directives", server.putHTTPLocationDirectives)
 	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}/locations/{locationID}/dynamic-dns", server.putHTTPLocationDynamicDNS)
+	mux.HandleFunc("GET /api/centers/{centerID}/tls-certificates", server.listTLSCertificates)
+	mux.HandleFunc("POST /api/centers/{centerID}/tls-certificates", server.createTLSCertificate)
+	mux.HandleFunc("PUT /api/centers/{centerID}/tls-certificates/{certificateID}", server.updateTLSCertificate)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/tls-certificates/{certificateID}", server.deleteTLSCertificate)
 	return mux
 }
 
