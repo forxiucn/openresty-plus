@@ -6,6 +6,7 @@ import net.daoke.openrestyplus.audit.AuditEvent;
 import net.daoke.openrestyplus.audit.AuditEventRepository;
 import net.daoke.openrestyplus.center.CenterRepository;
 import net.daoke.openrestyplus.httpconfig.HttpLocationRepository;
+import net.daoke.openrestyplus.httpconfig.HttpConfigurationRepository;
 import net.daoke.openrestyplus.httpconfig.HttpServerRepository;
 import net.daoke.openrestyplus.httpconfig.HttpUpstreamRepository;
 import net.daoke.openrestyplus.policy.ApiPolicyRepository;
@@ -38,6 +39,7 @@ public class RuntimeConfigurationController {
     private final HttpUpstreamRepository upstreams;
     private final HttpServerRepository servers;
     private final HttpLocationRepository locations;
+    private final HttpConfigurationRepository httpConfigurations;
     private final IpPolicyRepository ipPolicies;
     private final ApiPolicyRepository apiPolicies;
     private final StreamUpstreamRepository streamUpstreams;
@@ -48,6 +50,7 @@ public class RuntimeConfigurationController {
 
     public RuntimeConfigurationController(CenterRepository centers, HttpUpstreamRepository upstreams,
                                           HttpServerRepository servers, HttpLocationRepository locations,
+                                          HttpConfigurationRepository httpConfigurations,
                                           IpPolicyRepository ipPolicies, ApiPolicyRepository apiPolicies,
                                           StreamUpstreamRepository streamUpstreams, StreamServerRepository streamServers,
                                           RuntimeConfigurationVersionRepository versions, AuditEventRepository auditEvents) {
@@ -55,6 +58,7 @@ public class RuntimeConfigurationController {
         this.upstreams = upstreams;
         this.servers = servers;
         this.locations = locations;
+        this.httpConfigurations = httpConfigurations;
         this.ipPolicies = ipPolicies;
         this.apiPolicies = apiPolicies;
         this.streamUpstreams = streamUpstreams;
@@ -83,6 +87,37 @@ public class RuntimeConfigurationController {
         return versions.findFirstByCenterIdOrderByVersionNoDesc(centerId)
             .map(value -> published(value, true))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No runtime configuration has been published"));
+    }
+
+    /** Returns the current center draft compared with its newest published snapshot. */
+    @GetMapping("/draft")
+    public DraftStatus draft(@PathVariable UUID centerId) {
+        requireCenter(centerId);
+        JsonNode content = objectMapper.valueToTree(currentModel(centerId));
+        String checksum = sha256(content.toString());
+        var latest = versions.findFirstByCenterIdOrderByVersionNoDesc(centerId);
+        if (latest.isPresent() && latest.get().getChecksum().equals(checksum)) {
+            return new DraftStatus(latest.get().getVersionNo(), 0, List.of(), checksum);
+        }
+        JsonNode published = latest.map(RuntimeConfigurationVersion::getContent).orElse(null);
+        List<String> changedSections = changedSections(content, published);
+        return new DraftStatus(latest.map(RuntimeConfigurationVersion::getVersionNo).orElse(null),
+            changedSections.size(), changedSections, checksum);
+    }
+
+    /** Returns the submitted center draft and the newest published snapshot for a release review. */
+    @GetMapping("/draft/compare")
+    public DraftComparison compareDraft(@PathVariable UUID centerId) {
+        requireCenter(centerId);
+        JsonNode draft = objectMapper.valueToTree(currentModel(centerId));
+        String checksum = sha256(draft.toString());
+        var latest = versions.findFirstByCenterIdOrderByVersionNoDesc(centerId);
+        JsonNode published = latest.map(RuntimeConfigurationVersion::getContent).orElse(null);
+        List<String> changedSections = latest.isPresent() && latest.get().getChecksum().equals(checksum)
+            ? List.of()
+            : changedSections(draft, published);
+        return new DraftComparison(latest.map(RuntimeConfigurationVersion::getVersionNo).orElse(null),
+            asConfigurationMap(published), asConfigurationMap(draft), changedSections);
     }
 
     @PostMapping
@@ -122,6 +157,7 @@ public class RuntimeConfigurationController {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("schemaVersion", 1);
         value.put("centerId", centerId);
+        value.put("httpConfiguration", httpConfigurations.findById(centerId).orElse(null));
         value.put("httpUpstreams", upstreams.findByCenterIdOrderByName(centerId));
         value.put("httpServers", servers.findByCenterIdOrderByDomainAscListenPortAsc(centerId).stream().map(server -> {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -134,6 +170,18 @@ public class RuntimeConfigurationController {
         value.put("streamUpstreams", streamUpstreams.findByCenterIdOrderByName(centerId));
         value.put("streamServers", streamServers.findByCenterIdOrderByListenPortAsc(centerId));
         return value;
+    }
+
+    private List<String> changedSections(JsonNode draft, JsonNode published) {
+        return List.of("httpConfiguration", "httpUpstreams", "httpServers", "ipPolicies", "apiPolicies", "streamUpstreams", "streamServers")
+            .stream()
+            .filter(section -> published == null || !draft.path(section).equals(published.path(section)))
+            .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asConfigurationMap(JsonNode value) {
+        return value == null ? null : objectMapper.convertValue(value, Map.class);
     }
 
     private void requireCenter(UUID centerId) {
@@ -162,4 +210,6 @@ public class RuntimeConfigurationController {
     }
 
     public record PublishedConfiguration(UUID id, long versionNo, String checksum, Map<String, Object> content, boolean changed) { }
+    public record DraftStatus(Long publishedVersionNo, int changeCount, List<String> changedSections, String checksum) { }
+    public record DraftComparison(Long publishedVersionNo, Map<String, Object> published, Map<String, Object> draft, List<String> changedSections) { }
 }

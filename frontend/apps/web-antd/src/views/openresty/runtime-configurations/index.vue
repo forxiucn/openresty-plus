@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 
 import {
   Alert as AAlert,
@@ -9,6 +10,7 @@ import {
   Descriptions as ADescriptions,
   DescriptionsItem as ADescriptionsItem,
   Empty as AEmpty,
+  Modal as AModal,
   Row as ARow,
   Select as ASelect,
   Table as ATable,
@@ -16,6 +18,7 @@ import {
   message,
 } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import SectionHelp from '#/components/openresty/SectionHelp.vue';
 import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string; enabled: boolean };
@@ -37,6 +40,8 @@ type PublishedConfiguration = RuntimeVersion & { content: RuntimeContent; change
 type AuditEvent = { id: string; actor: string; action: string; result: string; createdAt: string };
 type ReloadNodeResult = { nodeId: string; nodeName: string; status: string; httpStatus?: number; message?: string; completedAt?: string };
 type ReloadTask = { id: string; status: string; createdAt: string; completedAt?: string; nodeResults: ReloadNodeResult[] };
+type DraftStatus = { publishedVersionNo?: number; changeCount: number; changedSections: string[] };
+type DraftComparison = { publishedVersionNo?: number; published?: Record<string, unknown>; draft: Record<string, unknown>; changedSections: string[] };
 
 const centers = ref<Center[]>([]);
 const versions = ref<RuntimeVersion[]>([]);
@@ -47,11 +52,24 @@ const loading = ref(false);
 const publishing = ref(false);
 const reloading = ref(false);
 const reloadTasks = ref<ReloadTask[]>([]);
+const draft = ref<DraftStatus>();
+const comparison = ref<DraftComparison>();
+const comparisonOpen = ref(false);
+const comparing = ref(false);
+const initialComparisonRequested = ref(false);
+const route = useRoute();
 const versionRows = ref<RuntimeVersion[]>([]), auditRows = ref<AuditEvent[]>([]), reloadRows = ref<ReloadTask[]>([]);
 const versionPager = useServerPagination(), auditPager = useServerPagination(), reloadPager = useServerPagination();
 
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const centerOptions = computed(() => centers.value.map((item) => ({ value: item.id, label: `${item.name}（${item.code}）` })));
+const sectionLabels: Record<string, string> = { httpUpstreams: 'HTTP Upstream', httpServers: 'HTTP Server 与 Location', ipPolicies: 'IP 访问策略', apiPolicies: '接口访问策略', streamUpstreams: 'Stream Upstream', streamServers: 'Stream Server' };
+const comparisonRows = computed(() => (comparison.value?.changedSections || []).map((section) => ({
+  key: section,
+  label: sectionLabels[section] || section,
+  published: comparison.value?.published?.[section],
+  draft: comparison.value?.draft?.[section],
+})));
 const summary = computed(() => ({
   upstreams: current.value?.content.httpUpstreams?.length ?? 0,
   servers: current.value?.content.httpServers?.length ?? 0,
@@ -94,6 +112,10 @@ function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
 }
 
+function formatJson(value: unknown) {
+  return value === undefined ? '—' : JSON.stringify(value, null, 2);
+}
+
 function versionStateLabel(value: string) {
   return ({ PUBLISHED: '已发布', ROLLED_BACK: '已回滚' } as Record<string, string>)[value] || value;
 }
@@ -123,7 +145,9 @@ async function loadCenters() {
   loading.value = true;
   try {
     centers.value = await request<Center[]>('/centers');
-    if (!selectedCenterId.value && centers.value[0]) await selectCenter(centers.value[0].id);
+    const requested = String(route.query.centerId || '');
+    const target = centers.value.find((item) => item.id === requested) || centers.value[0];
+    if (target) await selectCenter(target.id);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载中心失败');
   } finally {
@@ -137,11 +161,12 @@ async function selectCenter(centerId: string) {
   loading.value = true;
   try {
     versionPager.reset(); auditPager.reset(); reloadPager.reset();
-    const [loadedVersions, loadedAudits, loadedCurrent, loadedReloads, vp, ap, rp] = await Promise.all([
+    const [loadedVersions, loadedAudits, loadedCurrent, loadedReloads, loadedDraft, vp, ap, rp] = await Promise.all([
       request<RuntimeVersion[]>(`/centers/${centerId}/runtime-configurations`),
       request<AuditEvent[]>(`/centers/${centerId}/audit-events`),
       request<PublishedConfiguration>(`/centers/${centerId}/runtime-configurations/current`).catch(() => undefined),
       request<ReloadTask[]>(`/centers/${centerId}/control-api-reloads`).catch(() => []),
+      request<DraftStatus>(`/centers/${centerId}/runtime-configurations/draft`),
       request<PageResult<RuntimeVersion>>(`/centers/${centerId}/runtime-configurations/paged?${versionPager.query()}`),
       request<PageResult<AuditEvent>>(`/centers/${centerId}/audit-events/paged?${auditPager.query()}`),
       request<PageResult<ReloadTask>>(`/centers/${centerId}/control-api-reloads/paged?${reloadPager.query()}`).catch(() => ({items:[],page:0,size:10,total:0,totalPages:0})),
@@ -150,11 +175,29 @@ async function selectCenter(centerId: string) {
     auditEvents.value = loadedAudits;
     current.value = loadedCurrent;
     reloadTasks.value = loadedReloads;
+    draft.value = loadedDraft;
     versionRows.value=versionPager.apply(vp); auditRows.value=auditPager.apply(ap); reloadRows.value=reloadPager.apply(rp);
+    if (initialComparisonRequested.value) {
+      initialComparisonRequested.value = false;
+      await openComparison();
+    }
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载版本信息失败');
   } finally {
     loading.value = false;
+  }
+}
+
+async function openComparison() {
+  if (!selectedCenterId.value) return;
+  comparing.value = true;
+  try {
+    comparison.value = await request<DraftComparison>(`/centers/${selectedCenterId.value}/runtime-configurations/draft/compare`);
+    comparisonOpen.value = comparison.value.changedSections.length > 0;
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载配置差异失败');
+  } finally {
+    comparing.value = false;
   }
 }
 
@@ -181,18 +224,25 @@ async function reloadNativeConfiguration() {
   }
 }
 
-async function publish() {
-  if (!selectedCenterId.value) return;
+async function publish(): Promise<boolean> {
+  if (!selectedCenterId.value) return false;
   publishing.value = true;
   try {
     const published = await request<PublishedConfiguration>(`/centers/${selectedCenterId.value}/runtime-configurations`, { method: 'POST' });
     message.success(published.changed ? `配置版本 v${published.versionNo} 已发布` : `配置未变化，仍使用 v${published.versionNo}`);
+    window.dispatchEvent(new Event('openresty-config-published'));
     await selectCenter(selectedCenterId.value);
+    return true;
   } catch (error) {
     message.error(error instanceof Error ? error.message : '发布运行配置失败');
+    return false;
   } finally {
     publishing.value = false;
   }
+}
+
+async function publishFromComparison() {
+  if (await publish()) comparisonOpen.value = false;
 }
 
 async function rollback(version: RuntimeVersion) {
@@ -204,6 +254,7 @@ async function rollback(version: RuntimeVersion) {
       { method: 'POST' },
     );
     message.success(`已从 v${version.versionNo} 创建回滚版本 v${restored.versionNo}`);
+    window.dispatchEvent(new Event('openresty-config-published'));
     await selectCenter(selectedCenterId.value);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '回滚运行配置失败');
@@ -212,20 +263,62 @@ async function rollback(version: RuntimeVersion) {
   }
 }
 
-onMounted(loadCenters);
+onMounted(() => {
+  initialComparisonRequested.value = String(route.query.compare || '') === '1';
+  loadCenters();
+});
 </script>
 
 <template>
   <div class="ops-page">
     <a-card :bordered="false" title="运行配置版本与操作审计">
-      <a-alert class="mb-4" show-icon type="info" message="发布会将当前中心的 HTTP 配置和策略固化为 MySQL 不可变快照。Lua 工作进程可按版本读取快照；监听端口等原生配置由 Control API 触发 reload。" />
+      <template #extra><section-help text="发布会将当前中心的 HTTP 配置和策略固化为 MySQL 不可变快照。Lua 工作进程按版本读取快照；监听端口等原生配置由 Control API 触发 reload。"/></template>
       <div class="flex flex-wrap items-center gap-3">
         <span>配置中心</span>
         <a-select v-model:value="selectedCenterId" class="w-80" placeholder="请选择中心" :options="centerOptions" @change="selectCenter" />
-        <a-button :disabled="!selectedCenterId" :loading="publishing" type="primary" @click="publish">发布当前配置</a-button>
+        <a-button :disabled="!selectedCenterId" :loading="comparing" type="primary" @click="openComparison">查看差异并发布</a-button>
         <a-button :disabled="!selectedCenterId" :loading="reloading" @click="reloadNativeConfiguration">生成原生配置并重载</a-button>
       </div>
     </a-card>
+
+    <a-modal
+      v-model:open="comparisonOpen"
+      :confirm-loading="publishing"
+      :mask-closable="!publishing"
+      :ok-button-props="{ disabled: !comparisonRows.length }"
+      :width="1240"
+      cancel-text="暂不发布"
+      ok-text="确认发布"
+      title="发布前配置比对"
+      @ok="publishFromComparison"
+    >
+      <a-alert
+        show-icon
+        :type="comparisonRows.length ? 'warning' : 'success'"
+        :message="comparisonRows.length ? `检测到 ${comparisonRows.length} 类待发布变更` : '当前草稿与已发布版本一致'"
+        :description="comparison?.publishedVersionNo ? `左侧为已发布 v${comparison.publishedVersionNo}，右侧为准备提交的当前草稿。` : '当前中心尚未发布过配置，右侧草稿会成为首个运行版本。'"
+      />
+      <a-empty v-if="!comparisonRows.length" class="py-12" description="没有需要发布的配置变更" />
+      <div v-else class="comparison-list">
+        <section v-for="item in comparisonRows" :key="item.key" class="comparison-section">
+          <div class="comparison-heading">{{ item.label }}</div>
+          <a-row :gutter="16">
+            <a-col :md="12" :xs="24">
+              <div class="comparison-pane comparison-before">
+                <span class="comparison-label">{{ comparison?.publishedVersionNo ? `已发布 v${comparison.publishedVersionNo}` : '尚无历史版本' }}</span>
+                <pre>{{ comparison?.publishedVersionNo ? formatJson(item.published) : '—' }}</pre>
+              </div>
+            </a-col>
+            <a-col :md="12" :xs="24" class="max-md:mt-3">
+              <div class="comparison-pane comparison-after">
+                <span class="comparison-label">待发布草稿</span>
+                <pre>{{ formatJson(item.draft) }}</pre>
+              </div>
+            </a-col>
+          </a-row>
+        </section>
+      </div>
+    </a-modal>
 
     <metric-grid :metrics="reportMetrics" />
 
@@ -289,4 +382,13 @@ onMounted(loadCenters);
 .summary { display: flex; flex-direction: column; align-items: center; padding: 12px 4px; border-radius: 6px; background: rgb(0 0 0 / 2%); }
 .summary b { font-size: 22px; line-height: 1.4; }
 .summary span { color: rgb(0 0 0 / 45%); font-size: 12px; white-space: nowrap; }
+.comparison-list { max-height: calc(100vh - 310px); margin-top: 16px; overflow: auto; }
+.comparison-section { border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; padding: 16px; }
+.comparison-section + .comparison-section { margin-top: 12px; }
+.comparison-heading { margin-bottom: 12px; font-weight: 600; }
+.comparison-pane { min-height: 140px; overflow: auto; border-radius: 6px; padding: 12px; }
+.comparison-before { border: 1px solid rgb(255 77 79 / 38%); background: rgb(255 77 79 / 5%); }
+.comparison-after { border: 1px solid rgb(82 196 26 / 38%); background: rgb(82 196 26 / 5%); }
+.comparison-label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
+.comparison-pane pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; line-height: 1.55; }
 </style>

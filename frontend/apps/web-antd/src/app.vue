@@ -61,7 +61,8 @@ function installHelpHints() {
   document.querySelectorAll<HTMLElement>('.ops-page .ant-alert').forEach((alert) => {
     if (alert.dataset.helpReady === 'true') return;
     alert.dataset.helpReady = 'true';
-    const message = alert.textContent?.replace(/\s+/g, ' ').trim();
+    const messageNode = alert.querySelector<HTMLElement>('.ant-alert-message');
+    const message = messageNode?.textContent?.replace(/\s+/g, ' ').trim() || alert.textContent?.replace(/\s+/g, ' ').trim();
     if (message) alert.dataset.help = message;
     alert.setAttribute('aria-label', message || '帮助说明');
     const icon = document.createElement('span');
@@ -95,13 +96,23 @@ onBeforeUnmount(() => { drawerObserver?.disconnect(); });
 .global-drawer-resize-handle::after { position: absolute; top: 50%; left: 2px; width: 4px; height: 42px; border-radius: 4px; background: var(--ant-color-border); content: ''; transform: translateY(-50%); opacity: .75; }
 .global-drawer-resize-handle:hover { border-left-color: var(--ant-color-primary); background: color-mix(in srgb, var(--ant-color-primary) 12%, transparent); }
 .global-drawer-resize-handle:hover::after { background: var(--ant-color-primary); opacity: 1; }
-.ops-page .ant-alert { position: relative; width: 30px; min-height: 30px; padding: 0; overflow: visible; cursor: help; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
-.ops-page .ant-alert .ops-help-icon { display: grid; width: 28px; height: 28px; place-items: center; color: var(--ant-color-primary); font-size: 16px; }
-.ops-page .ant-alert > *:not(.ops-help-icon) { display: none; }
+.ops-page .ant-alert { position: relative; display: inline-flex; min-height: 30px; align-items: center; gap: 7px; padding: 6px 10px; overflow: visible; cursor: help; border: 1px solid var(--ant-color-primary-border); border-radius: 8px; background: var(--ant-color-primary-bg); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); transition: all .2s ease; }
+.ops-page .ant-alert .ant-alert-description { display: none; }
+.ops-page .ant-alert .ops-help-icon { display: inline-grid; width: 18px; height: 18px; flex: 0 0 18px; place-items: center; color: var(--ant-color-primary); font-size: 16px; }
 .ops-page .ant-alert::after { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: max-content; max-width: min(420px, calc(100vw - 48px)); padding: 9px 12px; content: attr(data-help); pointer-events: none; color: var(--ant-color-text); font-size: 13px; font-weight: 400; line-height: 1.55; text-align: left; white-space: normal; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; background: var(--ant-color-bg-elevated); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; }
 .ops-page .ant-alert:hover { border-color: var(--ant-color-primary); background: var(--ant-color-primary-bg); transform: translateY(-1px); }
 .ops-page .ant-alert:hover::after, .ops-page .ant-alert:focus-visible::after { opacity: 1; transform: translateY(0); }
-.ops-page > .ant-card { position: relative; }
-.ops-page > .ant-card > .ant-alert { position: absolute; z-index: 3; top: 20px; right: 24px; margin: 0 !important; }
-.ops-page > .ant-card > .ant-alert::after { top: calc(100% + 8px); right: 0; left: auto; }
+.ops-page { display: grid; gap: 16px; padding: 20px 24px 28px; }
+.ops-page > .ant-card, .ops-page > .ant-tabs { margin: 0 !important; min-width: 0; }
+.ops-page .ant-card-body { min-width: 0; }
+.ops-page .ant-form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; }
+.ops-page .ant-form-inline .ant-form-item { margin: 0; }
+.ops-page .ant-form-inline + .ant-alert { margin-top: 12px; }
+.ops-page .ant-table-wrapper { width: 100%; overflow-x: auto; }
+.ops-page .ant-table { min-width: 720px; }
+.ops-page .ant-tabs-nav { margin-bottom: 4px; padding: 0 8px; border-bottom: 1px solid var(--ant-color-border-secondary); background: var(--ant-color-bg-container); border-radius: 8px 8px 0 0; }
+.ops-page .ant-tabs-tab { padding-inline: 12px; }
+.ant-drawer .ant-drawer-body { padding: 20px 24px 92px; }
+.ant-drawer .ant-form-item { margin-bottom: 16px; }
+@media (max-width: 768px) { .ops-page { gap: 12px; padding: 16px; } .ops-page .ant-table { min-width: 620px; } .ant-drawer .ant-drawer-body { padding-inline: 16px; } }
 </style>

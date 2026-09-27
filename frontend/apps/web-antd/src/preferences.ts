@@ -18,7 +18,7 @@ interface WebAntdPreferencesExtension {
 export const overridesPreferences = defineOverridesPreferences({
   // overrides
   app: {
-    defaultHomePath: '/openresty/centers',
+    defaultHomePath: '/openresty/dashboard',
     name: import.meta.env.VITE_APP_TITLE,
   },
   theme: {

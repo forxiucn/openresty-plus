@@ -43,9 +43,13 @@ Compose 不创建 MySQL、Redis 或 Docker named volume。配置渲染目录直�
 
 Compose 的两个测试节点使用 `deploy/openresty/Dockerfile.control-api`：Nginx 1.31.5，启用官方 Control API、HTTP Lua 和 Stream Lua。当前 `docker-compose.yaml` 中所有服务使用 host 网络；前端监听 5173，两个测试节点分别使用 18080/28080，Control API 转发端口分别为 18081/28081。
 
-`node-registration` 服务会在控制面可用后，将两个测试节点自动登记到示例中心 `c62981ca-9bb7-4ab4-b871-5c9943efe84d`。节点 Control API 地址使用 `http://127.0.0.1:18081` 和 `http://127.0.0.1:28081`。
+`node-registration` 服务会在控制面可用后，将测试节点 `openresty-east-1` 自动登记到示例中心 `c62981ca-9bb7-4ab4-b871-5c9943efe84d`，Control API 地址为 `http://127.0.0.1:18081`。已删除的节点不会在重启时被重新创建。
 
 Compose 不创建 MySQL 或 Redis 容器，控制面直接连接 `.env` 中配置的外部服务。
+
+### 实例日志实时链路
+
+每个 OpenResty 节点配套一个 Filebeat 容器，读取绑定到项目目录的 `/var/log/nginx`，向 `192.168.100.6:9092` 的 `dtl-602-openresty-plus` topic 发送 JSON 日志。控制面使用 Spring Kafka 消费该 topic，并通过 `/api/centers/{centerId}/nodes/{nodeId}/logs/stream` 以 SSE 推送给 Web 控制台；页面进入“实例日志”后按中心、实例和访问/错误日志类型实时显示。Filebeat 的节点标识默认使用 Compose 服务名 `openresty-east-1` / `openresty-east-2`，生产部署时可通过环境变量覆盖。
 
 运行时配置以 MySQL 的不可变版本快照为准。Web 表单保存只写入 MySQL；点击发布后，OpenResty Lua 工作进程按默认 5 秒轮询读取新快照。新增监听端口、修改原生 HTTP/Stream 块等还必须生成原生配置并调用节点 Control API 执行 reload。
 
