@@ -7,3 +7,5 @@ frontend/dist/
 frontend/.vite/
 runtime/native-config/*
 !runtime/native-config/.gitkeep
+# Local OpenResty access and error logs are runtime artifacts.
+runtime/openresty-*/log/
