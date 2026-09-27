@@ -35,6 +35,11 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/centers/{centerID}/http/upstreams/{upstreamID}/targets/{targetID}", server.deleteHTTPUpstreamTarget)
 	mux.HandleFunc("GET /api/centers/{centerID}/http/settings", server.getHTTPSettings)
 	mux.HandleFunc("PUT /api/centers/{centerID}/http/settings", server.putHTTPSettings)
+	mux.HandleFunc("GET /api/centers/{centerID}/http/servers", server.listHTTPServers)
+	mux.HandleFunc("GET /api/centers/{centerID}/http/servers/paged", server.pageHTTPServers)
+	mux.HandleFunc("POST /api/centers/{centerID}/http/servers", server.createHTTPServer)
+	mux.HandleFunc("PUT /api/centers/{centerID}/http/servers/{serverID}", server.updateHTTPServer)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/http/servers/{serverID}", server.deleteHTTPServer)
 	return mux
 }
 
