@@ -74,7 +74,8 @@ func (server *Server) putHTTPSettings(w http.ResponseWriter, r *http.Request) {
 func (server *Server) loadHTTPSettings(center uuid.UUID) (httpSettings, error) {
 	value := defaultSettings()
 	var headers, pages, errors []byte
-	err := server.db.QueryRow(`SELECT root_path,hide_version,response_headers,sendfile_enabled,tcp_nopush_enabled,tcp_nodelay_enabled,keepalive_timeout_seconds,client_max_body_size,client_header_buffer_size,large_client_header_buffers,server_names_hash_bucket_size,gzip_enabled,gzip_min_length,gzip_comp_level,http_log_format,stream_log_format,default_pages,default_page_key,error_pages FROM http_configuration WHERE center_id=?`, center[:]).Scan(&value.RootPath, &value.HideVersion, &headers, &value.SendfileEnabled, &value.TCPNopushEnabled, &value.TCPNodelayEnabled, &value.KeepaliveTimeoutSeconds, &value.ClientMaxBodySize, &value.ClientHeaderBufferSize, &value.LargeClientHeaderBuffers, &value.ServerNamesHashBucketSize, &value.GzipEnabled, &value.GzipMinLength, &value.GzipCompLevel, &value.HTTPLogFormat, &value.StreamLogFormat, &pages, &value.DefaultPageKey, &errors)
+	var defaultPageKey *string
+	err := server.db.QueryRow(`SELECT root_path,hide_version,response_headers,sendfile_enabled,tcp_nopush_enabled,tcp_nodelay_enabled,keepalive_timeout_seconds,client_max_body_size,client_header_buffer_size,large_client_header_buffers,server_names_hash_bucket_size,gzip_enabled,gzip_min_length,gzip_comp_level,http_log_format,stream_log_format,default_pages,default_page_key,error_pages FROM http_configuration WHERE center_id=?`, center[:]).Scan(&value.RootPath, &value.HideVersion, &headers, &value.SendfileEnabled, &value.TCPNopushEnabled, &value.TCPNodelayEnabled, &value.KeepaliveTimeoutSeconds, &value.ClientMaxBodySize, &value.ClientHeaderBufferSize, &value.LargeClientHeaderBuffers, &value.ServerNamesHashBucketSize, &value.GzipEnabled, &value.GzipMinLength, &value.GzipCompLevel, &value.HTTPLogFormat, &value.StreamLogFormat, &pages, &defaultPageKey, &errors)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return value, nil
@@ -84,6 +85,9 @@ func (server *Server) loadHTTPSettings(center uuid.UUID) (httpSettings, error) {
 	_ = json.Unmarshal(headers, &value.ResponseHeaders)
 	_ = json.Unmarshal(pages, &value.DefaultPages)
 	_ = json.Unmarshal(errors, &value.ErrorPages)
+	if defaultPageKey != nil && *defaultPageKey != "" {
+		value.DefaultPageKey = *defaultPageKey
+	}
 	if value.DefaultPages == nil {
 		value.DefaultPages = map[string]string{}
 	}

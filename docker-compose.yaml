@@ -4,7 +4,7 @@ services:
   control-plane:
     network_mode: host
     build:
-      context: ./backend
+      context: ./backend-go
     environment:
       SPRING_PROFILES_ACTIVE: local
       OPENRESTY_DB_URL: ${OPENRESTY_DB_URL}
@@ -13,6 +13,8 @@ services:
       OPENRESTY_REDIS_HOST: ${OPENRESTY_REDIS_HOST}
       OPENRESTY_REDIS_PORT: ${OPENRESTY_REDIS_PORT}
       OPENRESTY_REDIS_PASSWORD: ${OPENRESTY_REDIS_PASSWORD}
+      OPENRESTY_KAFKA_BOOTSTRAP_SERVERS: ${OPENRESTY_KAFKA_BOOTSTRAP_SERVERS:-192.168.100.6:9092}
+      OPENRESTY_KAFKA_TOPIC: ${OPENRESTY_KAFKA_TOPIC:-dtl-602-openresty-plus}
       OPENRESTY_RENDER_ROOT: /var/lib/openresty-plus/rendered
     volumes:
       - ./runtime/native-config:/var/lib/openresty-plus/rendered
@@ -40,25 +42,23 @@ services:
       CONTROL_API_BRIDGE_PORT: 18081
     volumes:
       - ./runtime/native-config:/etc/openresty/generated
+      - ./runtime/openresty-east-1/log:/var/log/nginx
     depends_on:
       - control-plane
 
-  openresty-east-2:
+  filebeat-east-1:
     network_mode: host
     build:
-      context: ./deploy/openresty
-      dockerfile: Dockerfile.control-api
-    hostname: openresty-east-2
+      context: ./deploy/filebeat
     environment:
-      RUNTIME_CONTROL_PLANE_URL: http://127.0.0.1:8080
-      RUNTIME_CENTER_ID: c62981ca-9bb7-4ab4-b871-5c9943efe84d
-      RUNTIME_POLL_INTERVAL_SECONDS: 5
-      RUNTIME_HTTP_PORT: 28080
-      CONTROL_API_BRIDGE_PORT: 28081
+      FILEBEAT_NODE_ID: ${FILEBEAT_EAST_1_NODE_ID:-}
+      FILEBEAT_NODE_NAME: openresty-east-1
+      FILEBEAT_KAFKA_HOSTS: ${OPENRESTY_KAFKA_BOOTSTRAP_SERVERS:-192.168.100.6:9092}
+      FILEBEAT_KAFKA_TOPIC: ${OPENRESTY_KAFKA_TOPIC:-dtl-602-openresty-plus}
     volumes:
-      - ./runtime/native-config:/etc/openresty/generated
+      - ./runtime/openresty-east-1/log:/var/log/nginx:ro
     depends_on:
-      - control-plane
+      - openresty-east-1
 
   node-registration:
     build:
