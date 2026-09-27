@@ -24,6 +24,7 @@ import {
   message,
 } from 'ant-design-vue';
 import MetricGrid from '#/components/operations/MetricGrid.vue';
+import SectionHelp from '#/components/openresty/SectionHelp.vue';
 import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
@@ -302,7 +303,7 @@ onMounted(loadCenters);
 <template>
   <div class="ops-page">
     <a-card :bordered="false" title="访问策略管理">
-      <a-alert class="mb-4" show-icon type="info" message="策略保存后需在“版本与审计”中发布，运行中的 OpenResty 节点会读取最新快照。数值越小，优先级越高。" />
+      <template #extra><section-help text="策略保存后需在“版本与审计”中发布，运行中的 OpenResty 节点会读取最新快照。数值越小，优先级越高。"/></template>
       <a-form layout="inline">
         <a-form-item label="配置中心"><a-select v-model:value="selectedCenterId" class="w-72" placeholder="请选择中心" :options="centerOptions" @change="selectCenter" /></a-form-item>
       </a-form>
@@ -311,7 +312,7 @@ onMounted(loadCenters);
     <metric-grid :metrics="reportMetrics" />
 
     <a-card :bordered="false" title="策略生效开关">
-      <a-alert class="mb-4" show-icon type="warning" message="策略需要同时满足“目标开关已开启、策略自身已启用、已发布运行版本”才会生效。HTTP API 策略还要求域名端口和 Location 两级开关均开启。" />
+      <template #extra><section-help text="策略需要同时满足目标开关已开启、策略自身已启用、已发布运行版本才会生效。HTTP API 策略还要求域名端口和 Location 两级开关均开启。"/></template>
       <a-tabs>
         <a-tab-pane key="http-server" tab="域名与端口">
           <a-table :columns="httpTargetColumns" :data-source="serverRows" :pagination="serverPager.table.value" @change="(p:any)=>changePolicyPage('server',p)" row-key="id" size="small">

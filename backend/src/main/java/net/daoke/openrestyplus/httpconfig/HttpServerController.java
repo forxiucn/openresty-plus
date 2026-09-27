@@ -80,7 +80,8 @@ public class HttpServerController {
         requireCertificate(centerId, request.sslEnabled(), request.certificateId());
         var server = requireServerEntity(centerId, serverId);
         server.apply(request.domain(), request.listenPort(), request.sslEnabled(), request.certificateId(), request.upstreamId(),
-            request.accessLog(), request.errorLog());
+            normalizeLogPath(server.getAccessLog(), server.getDomain(), server.getListenPort(), request.domain(), request.listenPort(), ".access.log", request.accessLog()),
+            normalizeLogPath(server.getErrorLog(), server.getDomain(), server.getListenPort(), request.domain(), request.listenPort(), ".error.log", request.errorLog()));
         var saved = servers.save(server);
         audit.success(centerId, "HTTP_SERVER_UPDATED", "HTTP_SERVER", serverId);
         return ServerView.from(saved);
@@ -179,7 +180,7 @@ public class HttpServerController {
     @PutMapping("/{serverId}/directives")
     public ServerView serverDirectives(@PathVariable UUID centerId,@PathVariable UUID serverId,@Valid @RequestBody ServerDirectivesRequest request) {
         var server=requireServerEntity(centerId,serverId); HttpConfigurationController.validate(request.rootPath(),request.responseHeaders());
-        server.applyDirectives(request.rootPath(),request.hideVersion(),request.responseHeaders()); var saved=servers.save(server);
+        HttpConfigurationController.validateErrorPages(request.errorPages()); server.applyDirectives(request.rootPath(),request.hideVersion(),request.responseHeaders(),request.errorPages()); var saved=servers.save(server);
         audit.success(centerId,"HTTP_SERVER_DIRECTIVES_UPDATED","HTTP_SERVER",serverId); return ServerView.from(saved);
     }
     @PutMapping("/{serverId}/locations/{locationId}/policy-settings")
@@ -261,6 +262,15 @@ public class HttpServerController {
         }
     }
 
+    private static String normalizeLogPath(String current, String oldDomain, int oldPort, String newDomain, int newPort,
+                                           String suffix, String requested) {
+        String oldDefault = "/var/log/nginx/" + oldDomain + "." + oldPort + suffix;
+        if (requested == null || requested.isBlank() || oldDefault.equals(current)) {
+            return "/var/log/nginx/" + newDomain + "." + newPort + suffix;
+        }
+        return requested;
+    }
+
     public record CreateLocationRequest(
         @NotBlank String path,
         @NotEmpty List<@NotBlank String> methods,
@@ -293,11 +303,11 @@ public class HttpServerController {
 
     public record ServerView(UUID id, String domain, int listenPort, boolean sslEnabled, UUID certificateId, UUID upstreamId,
                              String accessLog, String errorLog, boolean ipPolicyEnabled, boolean apiPolicyEnabled,
-                             PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder, String rootPath, boolean hideVersion, List<String> responseHeaders) {
+                             PolicyModeOrder ipPolicyModeOrder, PolicyModeOrder apiPolicyModeOrder, String rootPath, boolean hideVersion, List<String> responseHeaders, Map<String,String> errorPages) {
         static ServerView from(HttpServer server) {
             return new ServerView(server.getId(), server.getDomain(), server.getListenPort(), server.isSslEnabled(),
                 server.getCertificateId(), server.getUpstreamId(), server.getAccessLog(), server.getErrorLog(),
-                server.isIpPolicyEnabled(), server.isApiPolicyEnabled(), server.getIpPolicyModeOrder(), server.getApiPolicyModeOrder(), server.getRootPath(), server.isHideVersion(), server.getResponseHeaders());
+                server.isIpPolicyEnabled(), server.isApiPolicyEnabled(), server.getIpPolicyModeOrder(), server.getApiPolicyModeOrder(), server.getRootPath(), server.isHideVersion(), server.getResponseHeaders(), server.getErrorPages());
         }
     }
 
@@ -320,7 +330,7 @@ public class HttpServerController {
         }
     }
     public record DynamicDnsRequest(boolean enabled,@jakarta.validation.constraints.Pattern(regexp="[0-9A-Za-z.-]{1,253}") String host,@Min(1)@Max(65535) Integer port){}
-    public record ServerDirectivesRequest(String rootPath,boolean hideVersion,List<String> responseHeaders){public ServerDirectivesRequest{responseHeaders=responseHeaders==null?List.of():List.copyOf(responseHeaders);}}
+    public record ServerDirectivesRequest(String rootPath,boolean hideVersion,List<String> responseHeaders,Map<String,String> errorPages){public ServerDirectivesRequest{responseHeaders=responseHeaders==null?List.of():List.copyOf(responseHeaders);errorPages=errorPages==null?Map.of():Map.copyOf(errorPages);}}
     public record LocationDirectivesRequest(@NotNull LocationAction action,String rootPath,String aliasPath,@Min(100)@Max(599) Integer returnStatus,String returnBody,@NotNull ReturnContentTypeMode returnContentTypeMode,String returnContentType,List<String> responseHeaders){public LocationDirectivesRequest{responseHeaders=responseHeaders==null?List.of():List.copyOf(responseHeaders);}}
     public record ServerPolicySettingsRequest(boolean ipPolicyEnabled, boolean apiPolicyEnabled,
                                               PolicyModeOrder ipPolicyModeOrder,

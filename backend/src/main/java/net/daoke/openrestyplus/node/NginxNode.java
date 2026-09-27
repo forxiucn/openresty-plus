@@ -15,7 +15,7 @@ public class NginxNode {
     @Column(name = "center_id", nullable = false) @JdbcTypeCode(Types.BINARY)
     private UUID centerId;
     @Column(nullable = false, length = 128) private String name;
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 32) private NginxProtocol protocol;
+    @Enumerated(EnumType.STRING) @Column(nullable = true, length = 32) private NginxProtocol protocol;
     @Column(nullable = false, length = 255) private String host;
     @Column(name = "service_port", nullable = false) private int servicePort;
     @Column(name = "control_api_url", length = 512) private String controlApiUrl;
@@ -24,16 +24,16 @@ public class NginxNode {
 
     protected NginxNode() { }
 
-    public NginxNode(UUID centerId, String name, NginxProtocol protocol, String host, int servicePort, String controlApiUrl) {
+    public NginxNode(UUID centerId, String name, String host, int servicePort, String controlApiUrl) {
         this.centerId = centerId;
         this.name = name;
-        this.protocol = protocol;
+        this.protocol = null;
         this.host = host;
         this.servicePort = servicePort;
         this.controlApiUrl = controlApiUrl;
     }
-    public void apply(String name, NginxProtocol protocol, String host, int servicePort, String controlApiUrl, boolean enabled) {
-        this.name = name; this.protocol = protocol; this.host = host; this.servicePort = servicePort;
+    public void apply(String name, String host, int servicePort, String controlApiUrl, boolean enabled) {
+        this.name = name; this.host = host; this.servicePort = servicePort;
         this.controlApiUrl = controlApiUrl; this.enabled = enabled;
     }
 

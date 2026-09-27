@@ -138,7 +138,7 @@ public class NativeConfigurationRenderer {
                 files.put(certificateStem + ".crt", certificate.getCertificatePem() + (certificate.getChainPem() == null || certificate.getChainPem().isBlank() ? "" : "\n" + certificate.getChainPem()));
                 files.put(certificateStem + ".key", certificate.getPrivateKeyPem());
             }
-            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, certificate, resolver(resolverValues, DnsResolverScope.HTTP_SERVER, server.getId()), now));
+            files.put("http/server/" + serverStem + ".conf", httpServer(server, locations, nodeRoot, certificate, resolver(resolverValues, DnsResolverScope.HTTP_SERVER, server.getId()), httpConfiguration == null ? "404.html" : httpConfiguration.getDefaultPageKey(), httpConfiguration == null ? java.util.Map.of() : httpConfiguration.getErrorPages(), now));
         }
         for (StreamUpstream upstream : streamUpstreamById.values()) {
             requireName(upstream.getName(), "Stream upstream name");
@@ -152,6 +152,11 @@ public class NativeConfigurationRenderer {
             }
             files.put("stream/server/" + server.getServiceName() + "." + server.getListenPort()
                     + (server.getProtocol() == StreamProtocol.UDP ? ".udp" : "") + ".conf", streamServer(server, streamUpstreamById.get(server.getUpstreamId()), resolver(resolverValues, DnsResolverScope.STREAM_SERVER, server.getId()), now));
+        }
+        if (httpConfiguration != null) {
+            net.daoke.openrestyplus.httpconfig.HttpDefaultPages.merge(httpConfiguration.getDefaultPages())
+                .forEach((name, content) -> files.put("http/default-pages/" + name, content));
+            httpConfiguration.getErrorPages().forEach((key, content) -> { var p=key.split("\\|",2); var file="error-"+p[0]+(p.length==2?"-"+safeContentType(p[1]):"")+".html"; files.put("http/default-pages/"+file, content); });
         }
         files.put("nginx.conf", rootConfiguration(nodeRoot, now, rateLimitedLocations,
                 streamServerValues.stream().filter(StreamServer::isDynamicDnsEnabled).toList(),
@@ -229,6 +234,7 @@ public class NativeConfigurationRenderer {
             + "http {\n"
             + "    # 七层 HTTP 配置：上游、虚拟主机和接口配置分别独立存放。\n"
             + httpBlockDirectives(httpConfiguration)
+            + errorPageContentTypeMaps(httpConfiguration, nodeRoot)
             + rootDirective(httpConfiguration == null ? null : httpConfiguration.getRootPath(), "    ")
             + versionDirective(httpConfiguration == null || httpConfiguration.isHideVersion(), "    ")
             + responseHeaders(httpConfiguration == null ? List.of() : httpConfiguration.getResponseHeaders(), "    ")
@@ -239,7 +245,9 @@ public class NativeConfigurationRenderer {
             + "    init_worker_by_lua_block { require(\"runtime\").start() }\n"
             + "    include /usr/local/openresty/nginx/conf/mime.types;\n"
             + "    default_type application/octet-stream;\n"
-            + "    log_format openresty_plus '$remote_addr - $remote_user [$time_local] \\\"$request\\\" $status $body_bytes_sent';\n"
+            + "    # 节点健康与状态端点独立于业务 HTTP Server 监听端口。\n"
+            + "    include /etc/openresty/conf.d/*.conf;\n"
+            + "    log_format " + logFormatName(httpConfiguration == null ? null : httpConfiguration.getHttpLogFormat(), "openresty_plus") + ";\n"
             + rateZones
             + "    include " + nodeRoot + "/http/upstream/*.conf;\n"
             + "    include " + nodeRoot + "/http/server/*.conf;\n"
@@ -250,7 +258,7 @@ public class NativeConfigurationRenderer {
             + streamTargetMaps
             + "    lua_package_path \"/usr/local/openresty/lualib/?.lua;/etc/openresty/lua/?.lua;;\";\n"
             + "    lua_package_cpath \"/usr/local/openresty/lualib/?.so;;\";\n"
-            + "    log_format openresty_plus_stream '$remote_addr [$time_local] $protocol $status $bytes_sent $bytes_received $session_time';\n"
+            + "    log_format " + logFormatName(httpConfiguration == null ? null : httpConfiguration.getStreamLogFormat(), "openresty_plus_stream") + ";\n"
             + "    include " + nodeRoot + "/stream/upstream/*.conf;\n"
             + "    include " + nodeRoot + "/stream/server/*.conf;\n"
             + "}\n";
@@ -270,6 +278,33 @@ public class NativeConfigurationRenderer {
             + "    gzip " + (value.isGzipEnabled() ? "on" : "off") + ";\n"
             + "    gzip_min_length " + value.getGzipMinLength() + ";\n"
             + "    gzip_comp_level " + value.getGzipCompLevel() + ";\n";
+    }
+
+    /** Selects a page by request Content-Type, with the status-only page as fallback. */
+    private static String errorPageContentTypeMaps(net.daoke.openrestyplus.httpconfig.HttpConfiguration value, String nodeRoot) {
+        if (value == null || value.getErrorPages().isEmpty()) return "";
+        var grouped = new java.util.LinkedHashMap<String, java.util.Map<String,String>>();
+        value.getErrorPages().forEach((key, content) -> { var p=key.split("\\|",2); grouped.computeIfAbsent(p[0], ignored -> new java.util.LinkedHashMap<>()).put(p.length==2?p[1]:"", content); });
+        var out = new StringBuilder();
+        grouped.forEach((code, variants) -> { if (variants.keySet().stream().anyMatch(k -> !k.isBlank())) { out.append("    map $http_content_type $openresty_plus_error_").append(code).append(" {\n"); var fallback=variants.getOrDefault("", "/__openresty_plus/default-pages/error-"+code+".html"); out.append("        default ").append(fallback).append(";\n"); variants.forEach((type, content) -> { if(!type.isBlank()) out.append("        ~*^").append(java.util.regex.Pattern.quote(type)).append(" ").append("/__openresty_plus/default-pages/error-").append(code).append("-").append(safeContentType(type)).append(".html;\n"); }); out.append("    }\n"); } });
+        return out.toString();
+    }
+
+    private static String safeContentType(String value) { return value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", ""); }
+
+    private static String logFormatName(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback + " '$request'";
+        }
+        if (value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0 || value.indexOf(';') >= 0) {
+            throw invalid("log_format 不能包含换行或分号");
+        }
+        int split = value.indexOf(' ');
+        if (split <= 0 || split == value.length() - 1) throw invalid("log_format 必须包含格式名称和格式内容");
+        String name = value.substring(0, split).trim().replace('-', '_');
+        String expression = value.substring(split + 1).trim();
+        if (expression.startsWith("'") || expression.startsWith("\"")) return value;
+        return name + " '" + expression.replace("'", "\\'") + "'";
     }
 
     private String httpUpstream(HttpUpstream upstream, List<HttpUpstreamTarget> targets, Instant now) {
@@ -302,7 +337,7 @@ public class NativeConfigurationRenderer {
         return value.toString();
     }
 
-    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, TlsCertificate certificate, DnsResolverConfiguration resolver, Instant now) {
+    private String httpServer(HttpServer server, List<HttpLocation> locations, String nodeRoot, TlsCertificate certificate, DnsResolverConfiguration resolver, String defaultPageKey, java.util.Map<String,String> globalErrorPages, Instant now) {
         String stem = server.getDomain() + "." + server.getListenPort() + (server.isSslEnabled() ? ".ssl" : "");
         StringBuilder result = new StringBuilder(header("http.server." + stem + ".conf", now));
         result.append("# HTTP 虚拟主机：").append(server.getDomain()).append(':').append(server.getListenPort()).append("。\n")
@@ -312,6 +347,28 @@ public class NativeConfigurationRenderer {
             .append("    server_name ").append(server.getDomain()).append(";\n")
             .append("    access_log ").append(directivePath(server.getAccessLog())).append(" openresty_plus;\n")
             .append("    error_log ").append(directivePath(server.getErrorLog())).append(" warn;\n");
+        result.append("    location = /__openresty_plus/status {\n")
+            .append("        stub_status;\n")
+            .append("        access_log off;\n")
+            .append("        allow 127.0.0.1;\n")
+            .append("        allow ::1;\n")
+            .append("        deny all;\n")
+            .append("    }\n");
+        result.append("    # 默认 404 页面：HTTP 配置中的 404.html，可由 Server 继承。\n")
+            .append("    error_page 404 = /__openresty_plus/default-pages/404.html;\n")
+            .append("    location = /__openresty_plus/default-pages/404.html {\n")
+            .append("        internal;\n")
+            .append("        alias ").append(nodeRoot).append("/http/default-pages/").append(defaultPageKey).append(";\n")
+            .append("    }\n");
+        java.util.Map<String,String> errorPages = new java.util.LinkedHashMap<>(globalErrorPages);
+        errorPages.putAll(server.getErrorPages());
+        var errorCodes = new java.util.LinkedHashSet<String>();
+        errorPages.keySet().forEach(key -> errorCodes.add(key.split("\\|",2)[0]));
+        errorCodes.forEach(code -> { var typed=errorPages.keySet().stream().anyMatch(key -> key.startsWith(code+"|")); if (!"404".equals(code)) result.append("    error_page ").append(code).append(" = ").append(typed ? "$openresty_plus_error_"+code : "/__openresty_plus/default-pages/error-"+code+".html").append(";\n"); });
+        errorCodes.forEach(code -> {
+            errorPages.forEach((key, content) -> { var p=key.split("\\|",2); if(p[0].equals(code)) { var file="error-"+code+(p.length==2?"-"+safeContentType(p[1]):"")+".html"; result.append("    location = /__openresty_plus/default-pages/").append(file).append(" {\n        internal;\n        alias ").append(nodeRoot).append("/http/default-pages/").append(file).append(";\n    }\n"); } });
+            if ("404".equals(code)) result.append("    error_page 404 = ").append(errorPages.keySet().stream().anyMatch(key -> key.startsWith("404|")) ? "$openresty_plus_error_404" : "/__openresty_plus/default-pages/error-404.html").append(";\n");
+        });
         result.append(rootDirective(server.getRootPath(), "    "));
         result.append(versionDirective(server.isHideVersion(), "    "));
         result.append(responseHeaders(server.getResponseHeaders(), "    "));
@@ -375,7 +432,7 @@ public class NativeConfigurationRenderer {
 
     private static String rootDirective(String value, String indent) { return value == null || value.isBlank() ? "" : indent + "root " + directivePath(value) + ";\n"; }
     private static String versionDirective(boolean hidden, String indent) { return hidden ? indent + "server_tokens off;\n" + indent + "more_clear_headers Server;\n" : ""; }
-    private static String responseHeaders(List<String> headers, String indent) { StringBuilder result=new StringBuilder(); for(String header:headers){int split=header.indexOf(": ");if(split>0)result.append(indent).append("add_header ").append(header,0,split).append(" \"").append(header.substring(split+2).replace("\"","\\\"")).append("\" always;\n");}return result.toString(); }
+    private static String responseHeaders(List<String> headers, String indent) { StringBuilder result=new StringBuilder(); for(String header:headers){int split=header.indexOf(": ");if(split>0){String name=header.substring(0,split);String value=header.substring(split+2).replace("\\","\\\\").replace("\"","\\\"");if("server".equalsIgnoreCase(name))result.append(indent).append("more_set_headers \"Server: ").append(value).append("\";\n");else result.append(indent).append("add_header ").append(name).append(" \"").append(value).append("\" always;\n");}}return result.toString(); }
 
     private static String rateZone(HttpLocation location) { return "openresty_plus_" + location.getId().toString().replace("-", ""); }
 

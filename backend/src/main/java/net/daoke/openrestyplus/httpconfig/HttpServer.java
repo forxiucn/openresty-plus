@@ -43,6 +43,7 @@ public class HttpServer {
     @Column(name = "root_path", length = 512) private String rootPath;
     @Column(name = "hide_version", nullable = false) private boolean hideVersion = true;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "response_headers", nullable = false, columnDefinition = "json") private List<String> responseHeaders = List.of();
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "error_pages", columnDefinition = "json") private java.util.Map<String,String> errorPages;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
 
     protected HttpServer() { }
@@ -83,6 +84,6 @@ public class HttpServer {
         this.ipPolicyModeOrder = ipPolicyModeOrder;
         this.apiPolicyModeOrder = apiPolicyModeOrder;
     }
-    public void applyDirectives(String rootPath, boolean hideVersion, List<String> responseHeaders) { this.rootPath=rootPath; this.hideVersion=hideVersion; this.responseHeaders=List.copyOf(responseHeaders); }
-    public String getRootPath(){ return rootPath; } public boolean isHideVersion(){ return hideVersion; } public List<String> getResponseHeaders(){ return responseHeaders; }
+    public void applyDirectives(String rootPath, boolean hideVersion, List<String> responseHeaders, java.util.Map<String,String> errorPages) { this.rootPath=rootPath; this.hideVersion=hideVersion; this.responseHeaders=List.copyOf(responseHeaders); this.errorPages=errorPages==null?java.util.Map.of():java.util.Map.copyOf(errorPages); }
+    public String getRootPath(){ return rootPath; } public boolean isHideVersion(){ return hideVersion; } public List<String> getResponseHeaders(){ return responseHeaders; } public java.util.Map<String,String> getErrorPages(){return errorPages==null?java.util.Map.of():errorPages;}
 }

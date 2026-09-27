@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   Alert as AAlert,
   Button as AButton,
@@ -19,56 +20,165 @@ import {
   Tag as ATag,
   message,
 } from 'ant-design-vue';
-import MetricGrid from '#/components/operations/MetricGrid.vue';
+import KeyValueEditor from '#/components/openresty/KeyValueEditor.vue';
+import SectionHelp from '#/components/openresty/SectionHelp.vue';
 import { type PageResult, useServerPagination } from '#/utils/server-pagination';
 
 type Center = { id: string; code: string; name: string };
-type HttpTarget = { id: string; targetHost: string; targetPort: number; weight: number; maxFails: number; failTimeoutSeconds: number; resolveEnabled: boolean; backup: boolean; enabled: boolean };
-type HealthResult = { targetId?: string; targetHost: string; targetPort: number; status: string; httpStatus?: number; message: string };
-type HttpUpstream = { id: string; name: string; keepaliveConnections: number; zoneSizeKilobytes: number; healthCheckEnabled: boolean; healthCheckType: 'TCP'|'HTTP'|'PING'; healthCheckPath: string; healthCheckIntervalSeconds: number; healthCheckTimeoutMilliseconds: number; healthCheckExpectedStatus: number; healthCheckHost?: string; healthCheckRequestHeaders: string[]; healthCheckRise: number; healthCheckFall: number; targets: HttpTarget[] };
-type StreamUpstream = { id: string; name: string; targetHost: string; targetPort: number; resolveEnabled: boolean; zoneSizeKilobytes: number; healthCheckEnabled:boolean; healthCheckType:'TCP'|'HTTP'|'PING'; healthCheckPath:string; healthCheckHost?:string; healthCheckIntervalSeconds:number; healthCheckTimeoutMilliseconds:number; healthCheckExpectedStatus:number; healthCheckRequestHeaders:string[]; healthCheckRise:number; healthCheckFall:number };
-type Resolver = { id: string; scope: 'HTTP' | 'STREAM'; resolverAddresses: string[]; validSeconds: number; timeoutMilliseconds: number; ipv6Enabled: boolean; enabled: boolean };
+type Node = { id: string; name: string; host: string; servicePort: number; enabled: boolean };
+type HttpTarget = {
+  id: string;
+  targetHost: string;
+  targetPort: number;
+  weight: number;
+  maxFails: number;
+  failTimeoutSeconds: number;
+  resolveEnabled: boolean;
+  backup: boolean;
+  enabled: boolean;
+};
+type HealthResult = {
+  targetId?: string;
+  targetHost: string;
+  targetPort: number;
+  status: string;
+  httpStatus?: number;
+  message: string;
+};
+type HttpUpstream = {
+  id: string;
+  name: string;
+  keepaliveConnections: number;
+  zoneSizeKilobytes: number;
+  healthCheckEnabled: boolean;
+  healthCheckType: 'TCP' | 'HTTP' | 'PING';
+  healthCheckPath: string;
+  healthCheckIntervalSeconds: number;
+  healthCheckTimeoutMilliseconds: number;
+  healthCheckExpectedStatus: number;
+  healthCheckHost?: string;
+  healthCheckRequestHeaders: string[];
+  healthCheckRise: number;
+  healthCheckFall: number;
+  targets: HttpTarget[];
+};
+type StreamUpstream = {
+  id: string;
+  name: string;
+  targetHost: string;
+  targetPort: number;
+  resolveEnabled: boolean;
+  zoneSizeKilobytes: number;
+  healthCheckEnabled: boolean;
+  healthCheckType: 'TCP' | 'HTTP' | 'PING';
+  healthCheckPath: string;
+  healthCheckHost?: string;
+  healthCheckIntervalSeconds: number;
+  healthCheckTimeoutMilliseconds: number;
+  healthCheckExpectedStatus: number;
+  healthCheckRequestHeaders: string[];
+  healthCheckRise: number;
+  healthCheckFall: number;
+};
+type Resolver = {
+  id: string;
+  scope: 'HTTP' | 'STREAM';
+  resolverAddresses: string[];
+  validSeconds: number;
+  timeoutMilliseconds: number;
+  ipv6Enabled: boolean;
+  enabled: boolean;
+};
 
 const centers = ref<Center[]>([]);
+const route = useRoute();
+const nodes = ref<Node[]>([]);
+const selectedNodeId = ref<string>();
 const selectedCenterId = ref<string>();
 const activeProtocol = ref<'http' | 'stream'>('http');
 const loading = ref(false);
 const httpUpstreams = ref<HttpUpstream[]>([]);
 const streamUpstreams = ref<StreamUpstream[]>([]);
-const upstreamRows=ref<(HttpUpstream|StreamUpstream)[]>([]),targetRows=ref<HttpTarget[]>([]);
-const upstreamPager=useServerPagination(),targetPager=useServerPagination();
+const upstreamRows = ref<(HttpUpstream | StreamUpstream)[]>([]),
+  targetRows = ref<HttpTarget[]>([]);
+const upstreamPager = useServerPagination(),
+  targetPager = useServerPagination();
 const resolvers = ref<Resolver[]>([]);
 const drawerOpen = ref(false);
 const resolverDrawerOpen = ref(false);
 const editingId = ref<string>();
 const targetDrawerOpen = ref(false);
+const targetEditorOpen = ref(false);
 const selectedHttpUpstream = ref<HttpUpstream>();
 const editingTargetId = ref<string>();
-const freshTarget = () => ({ targetHost: '', targetPort: 8080, weight: 1, maxFails: 3, failTimeoutSeconds: 10, resolveEnabled: false, backup: false, enabled: true });
+const freshTarget = () => ({
+  targetHost: '',
+  targetPort: 8080,
+  weight: 1,
+  maxFails: 3,
+  failTimeoutSeconds: 10,
+  resolveEnabled: false,
+  backup: false,
+  enabled: true,
+});
 const targetForm = ref(freshTarget());
 const healthResults = ref<HealthResult[]>([]);
 const healthChecking = ref(false);
-const freshResolver = () => ({ resolverAddresses: ['127.0.0.11'], validSeconds: 30, timeoutMilliseconds: 3000, ipv6Enabled: false, enabled: true });
+const freshResolver = () => ({
+  resolverAddresses: ['127.0.0.11'],
+  validSeconds: 30,
+  timeoutMilliseconds: 3000,
+  ipv6Enabled: false,
+  enabled: true,
+});
 const resolverForm = ref(freshResolver());
-const currentResolver = computed(() => resolvers.value.find((item) => item.scope === (activeProtocol.value === 'http' ? 'HTTP' : 'STREAM')));
+const currentResolver = computed(() =>
+  resolvers.value.find(
+    (item) => item.scope === (activeProtocol.value === 'http' ? 'HTTP' : 'STREAM'),
+  ),
+);
+const selectedNode = computed(() => nodes.value.find((item) => item.id === selectedNodeId.value));
 
-const freshHttp = () => ({ keepaliveConnections: 32, zoneSizeKilobytes: 64, name: '', healthCheckEnabled: false, healthCheckType: 'HTTP' as const, healthCheckPath: '/health', healthCheckIntervalSeconds: 10, healthCheckTimeoutMilliseconds: 1000, healthCheckExpectedStatus: 200, healthCheckHost: '', healthCheckRequestHeaders: [] as string[], healthCheckRise: 2, healthCheckFall: 3 });
-const freshStream = () => ({ name: '', targetHost: '', targetPort: 3306, resolveEnabled: false, zoneSizeKilobytes: 64, healthCheckEnabled:false, healthCheckType:'TCP' as const, healthCheckPath:'/health', healthCheckHost:'', healthCheckIntervalSeconds:10, healthCheckTimeoutMilliseconds:1000, healthCheckExpectedStatus:200, healthCheckRequestHeaders:[] as string[], healthCheckRise:2, healthCheckFall:3 });
+const freshHttp = () => ({
+  keepaliveConnections: 32,
+  zoneSizeKilobytes: 64,
+  name: '',
+  healthCheckEnabled: false,
+  healthCheckType: 'HTTP' as const,
+  healthCheckPath: '/health',
+  healthCheckIntervalSeconds: 10,
+  healthCheckTimeoutMilliseconds: 1000,
+  healthCheckExpectedStatus: 200,
+  healthCheckHost: '',
+  healthCheckRequestHeaders: [] as string[],
+  healthCheckRise: 2,
+  healthCheckFall: 3,
+});
+const freshStream = () => ({
+  name: '',
+  targetHost: '',
+  targetPort: 3306,
+  resolveEnabled: false,
+  zoneSizeKilobytes: 64,
+  healthCheckEnabled: false,
+  healthCheckType: 'TCP' as const,
+  healthCheckPath: '/health',
+  healthCheckHost: '',
+  healthCheckIntervalSeconds: 10,
+  healthCheckTimeoutMilliseconds: 1000,
+  healthCheckExpectedStatus: 200,
+  healthCheckRequestHeaders: [] as string[],
+  healthCheckRise: 2,
+  healthCheckFall: 3,
+});
 const form = ref(freshHttp() as ReturnType<typeof freshHttp> | ReturnType<typeof freshStream>);
 const currentList = computed(() => upstreamRows.value);
-const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
-const title = computed(() => activeProtocol.value === 'http' ? 'HTTP Upstream' : 'Stream Upstream');
-const reportMetrics = computed(() => activeProtocol.value === 'http' ? [
-  { label: 'HTTP Upstream', value: httpUpstreams.value.length, suffix: '组', hint: '七层转发目标', tone: 'blue' },
-  { label: '有效后端实例', value: httpUpstreams.value.reduce((sum, item) => sum + (item.targets?.filter((target) => target.enabled).length || 0), 0), suffix: '个', hint: '参与负载均衡', tone: 'green' },
-  { label: '动态解析后端', value: httpUpstreams.value.reduce((sum, item) => sum + (item.targets?.filter((target) => target.resolveEnabled).length || 0), 0), suffix: '个', hint: '已启用 resolve', tone: 'cyan' },
-  { label: '主动健康检查', value: httpUpstreams.value.filter((item) => item.healthCheckEnabled).length, suffix: '组', hint: '可立即执行探测', tone: 'purple' },
-] : [
-  { label: 'Stream Upstream', value: streamUpstreams.value.length, suffix: '组', hint: '四层转发目标', tone: 'blue' },
-  { label: '动态解析目标', value: streamUpstreams.value.filter((item) => item.resolveEnabled).length, suffix: '个', hint: '已启用 resolve', tone: 'cyan' },
-  { label: '共享内存总量', value: streamUpstreams.value.reduce((sum, item) => sum + item.zoneSizeKilobytes, 0), suffix: 'KB', hint: 'Upstream zone', tone: 'purple' },
-  { label: 'DNS Resolver', value: currentResolver.value?.resolverAddresses.length || 0, suffix: '个地址', hint: currentResolver.value?.enabled ? '当前已启用' : '当前未启用', tone: currentResolver.value?.enabled ? 'green' : 'orange' },
-]);
+const selectedCenter = computed(() =>
+  centers.value.find((item) => item.id === selectedCenterId.value),
+);
+const title = computed(() =>
+  activeProtocol.value === 'http' ? 'HTTP Upstream' : 'Stream Upstream',
+);
 const targetColumns = [
   { dataIndex: 'targetHost', key: 'targetHost', title: '地址' },
   { dataIndex: 'targetPort', key: 'targetPort', title: '端口', width: 86 },
@@ -77,19 +187,21 @@ const targetColumns = [
   { key: 'status', title: '状态', width: 105 },
   { key: 'action', title: '操作', width: 120 },
 ];
-const columns = computed(() => activeProtocol.value === 'http'
-  ? [
-      { dataIndex: 'name', key: 'name', title: '服务标识' },
-      { dataIndex: 'keepaliveConnections', key: 'keepaliveConnections', title: '长连接保留数' },
-      { dataIndex: 'targets', key: 'targets', title: '后端实例' },
-      { key: 'action', title: '操作', width: 150 },
-    ]
-  : [
-      { dataIndex: 'name', key: 'name', title: '服务标识' },
-      { dataIndex: 'targetHost', key: 'targetHost', title: '目标地址' },
-      { dataIndex: 'targetPort', key: 'targetPort', title: '目标端口' },
-      { key: 'action', title: '操作', width: 150 },
-    ]);
+const columns = computed(() =>
+  activeProtocol.value === 'http'
+    ? [
+        { dataIndex: 'name', key: 'name', title: '服务标识' },
+        { dataIndex: 'keepaliveConnections', key: 'keepaliveConnections', title: '长连接保留数' },
+        { dataIndex: 'targets', key: 'targets', title: '后端实例' },
+        { key: 'action', title: '操作', width: 150 },
+      ]
+    : [
+        { dataIndex: 'name', key: 'name', title: '服务标识' },
+        { dataIndex: 'targetHost', key: 'targetHost', title: '目标地址' },
+        { dataIndex: 'targetPort', key: 'targetPort', title: '目标端口' },
+        { key: 'action', title: '操作', width: 150 },
+      ],
+);
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -100,23 +212,50 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail || body.message || '请求失败');
   }
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+  return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
 }
 
-async function loadUpstreamPage(){if(!selectedCenterId.value)return;const path=activeProtocol.value==='http'?'http/upstreams/paged':'stream/upstreams/paged';upstreamRows.value=upstreamPager.apply(await request<PageResult<HttpUpstream|StreamUpstream>>(`/centers/${selectedCenterId.value}/${path}?${upstreamPager.query()}`))}
-async function changeUpstreamPage(p:any){upstreamPager.change(p);await loadUpstreamPage()}
-async function loadTargetPage(){if(!selectedCenterId.value||!selectedHttpUpstream.value)return;targetRows.value=targetPager.apply(await request<PageResult<HttpTarget>>(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/paged?${targetPager.query()}`))}
-async function changeTargetPage(p:any){targetPager.change(p);await loadTargetPage()}
+async function loadUpstreamPage() {
+  if (!selectedCenterId.value) return;
+  const path = activeProtocol.value === 'http' ? 'http/upstreams/paged' : 'stream/upstreams/paged';
+  upstreamRows.value = upstreamPager.apply(
+    await request<PageResult<HttpUpstream | StreamUpstream>>(
+      `/centers/${selectedCenterId.value}/${path}?${upstreamPager.query()}`,
+    ),
+  );
+}
+async function changeUpstreamPage(p: any) {
+  upstreamPager.change(p);
+  await loadUpstreamPage();
+}
+async function loadTargetPage() {
+  if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
+  targetRows.value = targetPager.apply(
+    await request<PageResult<HttpTarget>>(
+      `/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/paged?${targetPager.query()}`,
+    ),
+  );
+}
+async function changeTargetPage(p: any) {
+  targetPager.change(p);
+  await loadTargetPage();
+}
 async function loadCenter(centerId: string) {
   selectedCenterId.value = centerId;
-  upstreamPager.reset(); targetPager.reset();
+  upstreamPager.reset();
+  targetPager.reset();
   loading.value = true;
   try {
-    [httpUpstreams.value, streamUpstreams.value, resolvers.value] = await Promise.all([
+    [httpUpstreams.value, streamUpstreams.value, resolvers.value, nodes.value] = await Promise.all([
       request<HttpUpstream[]>(`/centers/${centerId}/http/upstreams`),
       request<StreamUpstream[]>(`/centers/${centerId}/stream/upstreams`),
       request<Resolver[]>(`/centers/${centerId}/dns-resolvers`),
+      request<Node[]>(`/centers/${centerId}/nodes`),
     ]);
+    const requestedNode = String(route.query.nodeId || '');
+    selectedNodeId.value = nodes.value.some((item) => item.id === requestedNode)
+      ? requestedNode
+      : (nodes.value.find((item) => item.enabled)?.id || nodes.value[0]?.id);
     await loadUpstreamPage();
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载 Upstream 失败');
@@ -129,7 +268,9 @@ async function load() {
   loading.value = true;
   try {
     centers.value = await request<Center[]>('/centers');
-    if (centers.value[0]) await loadCenter(centers.value[0].id);
+    const requestedCenter = String(route.query.centerId || '');
+    const center = centers.value.find((item) => item.id === requestedCenter) || centers.value[0];
+    if (center) await loadCenter(center.id);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '加载中心失败');
   } finally {
@@ -141,10 +282,44 @@ function openDrawer(value?: HttpUpstream | StreamUpstream) {
   editingId.value = value?.id;
   if (activeProtocol.value === 'http') {
     const item = value as HttpUpstream | undefined;
-    form.value = item ? { keepaliveConnections: item.keepaliveConnections, zoneSizeKilobytes: item.zoneSizeKilobytes, name: item.name, healthCheckEnabled: item.healthCheckEnabled, healthCheckType: item.healthCheckType || 'HTTP', healthCheckPath: item.healthCheckPath, healthCheckIntervalSeconds: item.healthCheckIntervalSeconds, healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds, healthCheckExpectedStatus: item.healthCheckExpectedStatus, healthCheckHost: item.healthCheckHost || '', healthCheckRequestHeaders: item.healthCheckRequestHeaders || [], healthCheckRise: item.healthCheckRise || 2, healthCheckFall: item.healthCheckFall || 3 } : freshHttp();
+    form.value = item
+      ? {
+          keepaliveConnections: item.keepaliveConnections,
+          zoneSizeKilobytes: item.zoneSizeKilobytes,
+          name: item.name,
+          healthCheckEnabled: item.healthCheckEnabled,
+          healthCheckType: item.healthCheckType || 'HTTP',
+          healthCheckPath: item.healthCheckPath,
+          healthCheckIntervalSeconds: item.healthCheckIntervalSeconds,
+          healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds,
+          healthCheckExpectedStatus: item.healthCheckExpectedStatus,
+          healthCheckHost: item.healthCheckHost || '',
+          healthCheckRequestHeaders: item.healthCheckRequestHeaders || [],
+          healthCheckRise: item.healthCheckRise || 2,
+          healthCheckFall: item.healthCheckFall || 3,
+        }
+      : freshHttp();
   } else {
     const item = value as StreamUpstream | undefined;
-    form.value = item ? { name: item.name, targetHost: item.targetHost, targetPort: item.targetPort, resolveEnabled: item.resolveEnabled, zoneSizeKilobytes: item.zoneSizeKilobytes, healthCheckEnabled:item.healthCheckEnabled, healthCheckType:item.healthCheckType||'TCP', healthCheckPath:item.healthCheckPath||'/health', healthCheckHost:item.healthCheckHost||'', healthCheckIntervalSeconds:item.healthCheckIntervalSeconds||10, healthCheckTimeoutMilliseconds:item.healthCheckTimeoutMilliseconds||1000, healthCheckExpectedStatus:item.healthCheckExpectedStatus||200, healthCheckRequestHeaders:item.healthCheckRequestHeaders||[], healthCheckRise:item.healthCheckRise||2, healthCheckFall:item.healthCheckFall||3 } : freshStream();
+    form.value = item
+      ? {
+          name: item.name,
+          targetHost: item.targetHost,
+          targetPort: item.targetPort,
+          resolveEnabled: item.resolveEnabled,
+          zoneSizeKilobytes: item.zoneSizeKilobytes,
+          healthCheckEnabled: item.healthCheckEnabled,
+          healthCheckType: item.healthCheckType || 'TCP',
+          healthCheckPath: item.healthCheckPath || '/health',
+          healthCheckHost: item.healthCheckHost || '',
+          healthCheckIntervalSeconds: item.healthCheckIntervalSeconds || 10,
+          healthCheckTimeoutMilliseconds: item.healthCheckTimeoutMilliseconds || 1000,
+          healthCheckExpectedStatus: item.healthCheckExpectedStatus || 200,
+          healthCheckRequestHeaders: item.healthCheckRequestHeaders || [],
+          healthCheckRise: item.healthCheckRise || 2,
+          healthCheckFall: item.healthCheckFall || 3,
+        }
+      : freshStream();
   }
   drawerOpen.value = true;
 }
@@ -153,10 +328,13 @@ async function save() {
   if (!selectedCenterId.value) return;
   const base = activeProtocol.value === 'http' ? 'http/upstreams' : 'stream/upstreams';
   try {
-    await request(`/centers/${selectedCenterId.value}/${base}${editingId.value ? `/${editingId.value}` : ''}`, {
-      body: JSON.stringify(form.value),
-      method: editingId.value ? 'PUT' : 'POST',
-    });
+    await request(
+      `/centers/${selectedCenterId.value}/${base}${editingId.value ? `/${editingId.value}` : ''}`,
+      {
+        body: JSON.stringify(form.value),
+        method: editingId.value ? 'PUT' : 'POST',
+      },
+    );
     drawerOpen.value = false;
     await loadCenter(selectedCenterId.value);
     message.success(editingId.value ? `${title.value} 已更新` : `${title.value} 已创建`);
@@ -179,28 +357,43 @@ async function remove(id: string) {
 
 function openTargets(upstream: HttpUpstream, target?: HttpTarget) {
   selectedHttpUpstream.value = upstream;
-  editingTargetId.value = target?.id;
-  targetForm.value = target ? { ...target } : freshTarget();
+  editingTargetId.value = undefined;
+  targetForm.value = freshTarget();
   healthResults.value = [];
-  targetPager.reset(); targetRows.value=[]; loadTargetPage();
+  targetPager.reset();
+  targetRows.value = [];
+  loadTargetPage();
   targetDrawerOpen.value = true;
+  if (target) openTargetEditor(target);
 }
 async function runHealthChecks() {
   if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
   healthChecking.value = true;
   try {
-    healthResults.value = await request<HealthResult[]>(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/health-checks`);
+    healthResults.value = await request<HealthResult[]>(
+      `/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/health-checks`,
+    );
     message.success('健康检查已完成');
-  } catch (error) { message.error(error instanceof Error ? error.message : '健康检查失败'); }
-  finally { healthChecking.value = false; }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '健康检查失败');
+  } finally {
+    healthChecking.value = false;
+  }
 }
 function addTarget() {
+  openTargetEditor();
+}
+function openTargetEditor(target?: HttpTarget) {
+  editingTargetId.value = target?.id;
+  targetForm.value = target ? { ...target } : freshTarget();
+  targetEditorOpen.value = true;
+}
+function resetTargetForm() {
   editingTargetId.value = undefined;
   targetForm.value = freshTarget();
 }
 function editTarget(target: HttpTarget) {
-  editingTargetId.value = target.id;
-  targetForm.value = { ...target };
+  openTargetEditor(target);
 }
 async function refreshSelectedTargets() {
   if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
@@ -210,36 +403,83 @@ async function refreshSelectedTargets() {
   await loadTargetPage();
 }
 async function saveTarget() {
-  if (!selectedCenterId.value || !selectedHttpUpstream.value || !targetForm.value.targetHost) return;
+  if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
+  if (!targetForm.value.targetHost.trim()) {
+    message.warning('请填写后端地址');
+    return;
+  }
+  if (!Number.isInteger(Number(targetForm.value.targetPort)) || Number(targetForm.value.targetPort) < 1 || Number(targetForm.value.targetPort) > 65535) {
+    message.warning('后端端口必须在 1 至 65535 之间');
+    return;
+  }
   const isEditing = Boolean(editingTargetId.value);
   try {
     const base = `/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets`;
-    await request(`${base}${editingTargetId.value ? `/${editingTargetId.value}` : ''}`, { method: editingTargetId.value ? 'PUT' : 'POST', body: JSON.stringify(targetForm.value) });
-    await refreshSelectedTargets(); addTarget(); message.success(isEditing ? '后端实例已更新' : '后端实例已添加');
-  } catch (error) { message.error(error instanceof Error ? error.message : '保存后端实例失败'); }
+    const payload = {
+      targetHost: targetForm.value.targetHost.trim(),
+      targetPort: Number(targetForm.value.targetPort),
+      weight: Number(targetForm.value.weight),
+      maxFails: Number(targetForm.value.maxFails),
+      failTimeoutSeconds: Number(targetForm.value.failTimeoutSeconds),
+      resolveEnabled: Boolean(targetForm.value.resolveEnabled),
+      backup: Boolean(targetForm.value.backup),
+      enabled: Boolean(targetForm.value.enabled),
+    };
+    await request(`${base}${editingTargetId.value ? `/${editingTargetId.value}` : ''}`, {
+      method: editingTargetId.value ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    await refreshSelectedTargets();
+    targetEditorOpen.value = false;
+    resetTargetForm();
+    window.dispatchEvent(new Event('openresty-config-saved'));
+    message.success(isEditing ? '后端实例已更新' : '后端实例已添加');
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '保存后端实例失败');
+  }
 }
 async function removeTarget(target: HttpTarget) {
   if (!selectedCenterId.value || !selectedHttpUpstream.value) return;
-  try { await request(`/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/${target.id}`, { method: 'DELETE' }); await refreshSelectedTargets(); addTarget(); message.success('后端实例已删除'); } catch (error) { message.error(error instanceof Error ? error.message : '删除后端实例失败'); }
+  try {
+    await request(
+      `/centers/${selectedCenterId.value}/http/upstreams/${selectedHttpUpstream.value.id}/targets/${target.id}`,
+      { method: 'DELETE' },
+    );
+    await refreshSelectedTargets();
+    addTarget();
+    message.success('后端实例已删除');
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '删除后端实例失败');
+  }
 }
 async function removeCurrentTarget() {
-  const target = selectedHttpUpstream.value?.targets.find((item) => item.id === editingTargetId.value);
-  if (target) await removeTarget(target);
+  const target = selectedHttpUpstream.value?.targets.find(
+    (item) => item.id === editingTargetId.value,
+  );
+  if (target) {
+    await removeTarget(target);
+    targetEditorOpen.value = false;
+    resetTargetForm();
+  }
 }
 
 async function switchProtocol(key: string) {
-  activeProtocol.value = key as 'http' | 'stream'; upstreamPager.reset(); await loadUpstreamPage();
+  activeProtocol.value = key as 'http' | 'stream';
+  upstreamPager.reset();
+  await loadUpstreamPage();
 }
 
 function openResolverDrawer() {
   const value = currentResolver.value;
-  resolverForm.value = value ? {
-    resolverAddresses: [...value.resolverAddresses],
-    validSeconds: value.validSeconds,
-    timeoutMilliseconds: value.timeoutMilliseconds,
-    ipv6Enabled: value.ipv6Enabled,
-    enabled: value.enabled,
-  } : freshResolver();
+  resolverForm.value = value
+    ? {
+        resolverAddresses: [...value.resolverAddresses],
+        validSeconds: value.validSeconds,
+        timeoutMilliseconds: value.timeoutMilliseconds,
+        ipv6Enabled: value.ipv6Enabled,
+        enabled: value.enabled,
+      }
+    : freshResolver();
   resolverDrawerOpen.value = true;
 }
 
@@ -255,10 +495,13 @@ async function saveResolver() {
     targetResourceId: null,
   };
   try {
-    await request(`/centers/${selectedCenterId.value}/dns-resolvers${value ? `/${value.id}` : ''}`, {
-      method: value ? 'PUT' : 'POST',
-      body: JSON.stringify(payload),
-    });
+    await request(
+      `/centers/${selectedCenterId.value}/dns-resolvers${value ? `/${value.id}` : ''}`,
+      {
+        method: value ? 'PUT' : 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
     resolverDrawerOpen.value = false;
     await loadCenter(selectedCenterId.value);
     message.success(`${activeProtocol.value === 'http' ? 'HTTP' : 'Stream'} DNS Resolver 已保存`);
@@ -273,26 +516,25 @@ onMounted(load);
 <template>
   <div class="ops-page">
     <a-card :bordered="false" title="Upstream 配置">
-      <a-alert
-        class="mb-4"
-        message="集中维护七层与四层的后端服务组。修改后请到“版本与审计”发布运行时快照；涉及监听端口的变更还需执行原生配置重载。"
-        show-icon
-        type="info"
-      />
+      <template #extra><section-help text="集中维护 HTTP 与 Stream 的后端服务组。保存为中心草稿后，从右上角的待发布提醒进入发布页面；监听端口变更还需要原生配置重载。"/></template>
       <a-form layout="inline">
         <a-form-item label="配置中心">
           <a-select
             v-model:value="selectedCenterId"
             class="w-72"
             placeholder="请选择中心"
-            :options="centers.map((item) => ({ value: item.id, label: `${item.name}（${item.code}）` }))"
+            :options="
+              centers.map((item) => ({ value: item.id, label: `${item.name}（${item.code}）` }))
+            "
             @change="loadCenter"
           />
+        </a-form-item>
+        <a-form-item v-if="selectedCenter">
+          <span class="text-gray-500">配置范围：{{ selectedCenter.name }} → {{ selectedNode ? `${selectedNode.name}（${selectedNode.host}:${selectedNode.servicePort}）` : '全部实例' }} → {{ activeProtocol === 'http' ? 'HTTP Upstream' : 'Stream Upstream' }}</span>
         </a-form-item>
       </a-form>
     </a-card>
 
-    <metric-grid :metrics="reportMetrics" />
 
     <a-card :bordered="false">
       <a-tabs :active-key="activeProtocol" @change="switchProtocol">
@@ -302,9 +544,12 @@ onMounted(load);
       <div class="mb-5 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <div class="font-medium">{{ activeProtocol === 'http' ? 'HTTP DNS Resolver' : 'Stream DNS Resolver' }}</div>
+            <div class="font-medium">
+              {{ activeProtocol === 'http' ? 'HTTP DNS Resolver' : 'Stream DNS Resolver' }}
+            </div>
             <div class="mt-1 text-sm text-gray-500">
-              Upstream 后端启用 resolve 后，使用此协议全局 Resolver 解析域名；Resolver 指令生成在对应的 HTTP 或 Stream 上下文中。
+              Upstream 后端启用 resolve 后，使用此协议全局 Resolver 解析域名；Resolver
+              指令生成在对应的 HTTP 或 Stream 上下文中。
             </div>
           </div>
           <a-button :disabled="!selectedCenterId" @click="openResolverDrawer">
@@ -313,11 +558,17 @@ onMounted(load);
         </div>
         <div v-if="currentResolver" class="mt-4 flex flex-wrap items-center gap-2">
           <span class="text-sm text-gray-500">DNS 服务器地址：</span>
-          <a-tag v-for="address in currentResolver.resolverAddresses" :key="address" color="blue">{{ address }}</a-tag>
+          <a-tag v-for="address in currentResolver.resolverAddresses" :key="address" color="blue">{{
+            address
+          }}</a-tag>
           <a-tag>缓存 {{ currentResolver.validSeconds }} 秒</a-tag>
           <a-tag>超时 {{ currentResolver.timeoutMilliseconds }} 毫秒</a-tag>
-          <a-tag :color="currentResolver.ipv6Enabled ? 'cyan' : 'default'">IPv6 {{ currentResolver.ipv6Enabled ? '启用' : '关闭' }}</a-tag>
-          <a-tag :color="currentResolver.enabled ? 'green' : 'default'">{{ currentResolver.enabled ? '已启用' : '已停用' }}</a-tag>
+          <a-tag :color="currentResolver.ipv6Enabled ? 'cyan' : 'default'"
+            >IPv6 {{ currentResolver.ipv6Enabled ? '启用' : '关闭' }}</a-tag
+          >
+          <a-tag :color="currentResolver.enabled ? 'green' : 'default'">{{
+            currentResolver.enabled ? '已启用' : '已停用'
+          }}</a-tag>
         </div>
         <a-alert
           v-else
@@ -329,12 +580,20 @@ onMounted(load);
       </div>
       <div class="mb-4 flex items-center justify-between">
         <div>
-          <div class="text-base font-medium">{{ selectedCenter ? `${selectedCenter.name} 的${title}` : title }}</div>
+          <div class="text-base font-medium">
+            {{ selectedCenter ? `${selectedCenter.name} 的${title}` : title }}
+          </div>
           <div class="mt-1 text-sm text-gray-500">
-            {{ activeProtocol === 'http' ? '用于 HTTP Server 与 Location 的反向代理目标。' : '用于 TCP/UDP Server 的四层转发目标。' }}
+            {{
+              activeProtocol === 'http'
+                ? '用于 HTTP Server 与 Location 的反向代理目标。'
+                : '用于 TCP/UDP Server 的四层转发目标。'
+            }}
           </div>
         </div>
-        <a-button :disabled="!selectedCenterId" type="primary" @click="openDrawer()">新增 Upstream</a-button>
+        <a-button :disabled="!selectedCenterId" type="primary" @click="openDrawer()"
+          >新增 Upstream</a-button
+        >
       </div>
 
       <a-table
@@ -351,11 +610,16 @@ onMounted(load);
             <a-tag color="blue">{{ record.keepaliveConnections }} 个连接</a-tag>
           </template>
           <template v-else-if="column.key === 'targets'">
-            <a-button type="link" @click="openTargets(record)">管理 {{ record.targets?.length || 0 }} 个实例</a-button>
+            <a-button type="link" @click="openTargets(record)"
+              >管理 {{ record.targets?.length || 0 }} 个实例</a-button
+            >
           </template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" @click="openDrawer(record)">编辑</a-button>
-            <a-popconfirm title="确认删除该 Upstream？已关联的配置可能无法继续转发。" @confirm="remove(record.id)">
+            <a-popconfirm
+              title="确认删除该 Upstream？已关联的配置可能无法继续转发。"
+              @confirm="remove(record.id)"
+            >
               <a-button danger type="link">删除</a-button>
             </a-popconfirm>
           </template>
@@ -389,10 +653,20 @@ onMounted(load);
           />
         </a-form-item>
         <a-form-item label="缓存有效期（秒）" extra="缓存过期后，带 resolve 的后端域名会重新解析。">
-          <a-input-number v-model:value="resolverForm.validSeconds" class="w-full" :min="1" :max="3600" />
+          <a-input-number
+            v-model:value="resolverForm.validSeconds"
+            class="w-full"
+            :min="1"
+            :max="3600"
+          />
         </a-form-item>
         <a-form-item label="解析超时（毫秒）">
-          <a-input-number v-model:value="resolverForm.timeoutMilliseconds" class="w-full" :min="100" :max="60000" />
+          <a-input-number
+            v-model:value="resolverForm.timeoutMilliseconds"
+            class="w-full"
+            :min="100"
+            :max="60000"
+          />
         </a-form-item>
         <a-form-item>
           <a-checkbox v-model:checked="resolverForm.ipv6Enabled">启用 IPv6 解析</a-checkbox>
@@ -407,34 +681,105 @@ onMounted(load);
       </template>
     </a-drawer>
 
-    <a-drawer v-model:open="drawerOpen" :title="editingId ? `编辑${title}` : `新增${title}`" :width="500">
+    <a-drawer
+      v-model:open="drawerOpen"
+      :title="editingId ? `编辑${title}` : `新增${title}`"
+      :width="500"
+    >
       <a-form layout="vertical">
-        <a-form-item label="服务标识" required>
+        <a-form-item label="服务标识" required extra="upstream：后端服务组的名称；在 Server 或 Location 的 proxy_pass 中被引用。">
           <a-input v-model:value="form.name" placeholder="如 order、payment、mysql" />
         </a-form-item>
         <template v-if="activeProtocol === 'http'">
-          <a-form-item label="长连接保留数" extra="Nginx 与后端服务之间长期保留的最大空闲连接数。" required>
-            <a-input-number v-model:value="form.keepaliveConnections" class="w-full" :max="10000" :min="1" />
+          <a-form-item
+            label="长连接保留数"
+            extra="keepalive：Nginx 与后端服务之间长期保留的最大空闲连接数；填写正整数。"
+            required
+          >
+            <a-input-number
+              v-model:value="form.keepaliveConnections"
+              class="w-full"
+              :max="10000"
+              :min="1"
+            />
           </a-form-item>
-          <a-form-item label="动态解析共享内存（KB）" extra="任一后端实例启用 resolve 时自动生成 upstream zone，建议不小于 64KB。" required>
-            <a-input-number v-model:value="form.zoneSizeKilobytes" class="w-full" :max="65536" :min="8" />
+          <a-form-item
+            label="动态解析共享内存（KB）"
+            extra="zone：任一后端启用 resolve 时使用的共享内存；填写 KB，建议不小于 64。"
+            required
+          >
+            <a-input-number
+              v-model:value="form.zoneSizeKilobytes"
+              class="w-full"
+              :max="65536"
+              :min="8"
+            />
           </a-form-item>
-          <a-form-item label="主动健康检查">
+          <a-form-item label="主动健康检查" extra="启用后平台会为该 Upstream 保存 TCP、HTTP 或 PING 探测参数。">
             <a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox>
           </a-form-item>
           <template v-if="form.healthCheckEnabled">
-            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测，不依赖系统 ICMP 权限。"><a-select v-model:value="form.healthCheckType" :options="[{value:'TCP',label:'TCP（TCP）'},{value:'HTTP',label:'HTTP（HTTP）'},{value:'PING',label:'PING（PING）'}]" /></a-form-item>
-            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="健康检查路径" extra="控制面调用每个 HTTP 后端实例时使用的路径。">
+            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测，不依赖系统 ICMP 权限。"
+              ><a-select
+                v-model:value="form.healthCheckType"
+                :options="[
+                  { value: 'TCP', label: 'TCP（TCP）' },
+                  { value: 'HTTP', label: 'HTTP（HTTP）' },
+                  { value: 'PING', label: 'PING（PING）' },
+                ]"
+            /></a-form-item>
+            <a-form-item
+              v-if="form.healthCheckType === 'HTTP'"
+              label="健康检查路径"
+              extra="控制面调用每个 HTTP 后端实例时使用的路径。"
+            >
               <a-input v-model:value="form.healthCheckPath" placeholder="/health" />
             </a-form-item>
-            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="HTTP Host 覆盖"><a-input v-model:value="form.healthCheckHost" placeholder="可选，例如 api.internal" /></a-form-item>
-            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="自定义请求头"><a-select v-model:value="form.healthCheckRequestHeaders" mode="tags" :token-separators="[',']" placeholder="例如 Authorization: Bearer token" /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="HTTP Host 覆盖" extra="Host：探测 HTTP 后端时携带的 Host 请求头；留空则使用后端地址。"
+              ><a-input v-model:value="form.healthCheckHost" placeholder="可选，例如 api.internal"
+            /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="自定义请求头" extra="每一项是一组请求头名称和值，用于健康检查请求。"
+              ><key-value-editor
+                v-model="form.healthCheckRequestHeaders"
+                name-placeholder="请求头名称"
+                value-placeholder="请求头值"
+            /></a-form-item>
             <div class="grid grid-cols-3 gap-4">
-              <a-form-item label="间隔（秒）"><a-input-number v-model:value="form.healthCheckIntervalSeconds" class="w-full" :min="1" :max="3600" /></a-form-item>
-              <a-form-item label="超时（毫秒）"><a-input-number v-model:value="form.healthCheckTimeoutMilliseconds" class="w-full" :min="50" :max="60000" /></a-form-item>
-              <a-form-item v-if="form.healthCheckType === 'HTTP'" label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item>
-              <a-form-item label="连续成功次数"><a-input-number v-model:value="form.healthCheckRise" class="w-full" :min="1" :max="100" /></a-form-item>
-              <a-form-item label="连续失败次数"><a-input-number v-model:value="form.healthCheckFall" class="w-full" :min="1" :max="100" /></a-form-item>
+              <a-form-item label="间隔（秒）" extra="两次健康探测之间的时间。"
+                ><a-input-number
+                  v-model:value="form.healthCheckIntervalSeconds"
+                  class="w-full"
+                  :min="1"
+                  :max="3600"
+              /></a-form-item>
+              <a-form-item label="超时（毫秒）"
+                ><a-input-number
+                  v-model:value="form.healthCheckTimeoutMilliseconds"
+                  class="w-full"
+                  :min="50"
+                  :max="60000"
+              /></a-form-item>
+              <a-form-item v-if="form.healthCheckType === 'HTTP'" label="期望状态码"
+                ><a-input-number
+                  v-model:value="form.healthCheckExpectedStatus"
+                  class="w-full"
+                  :min="100"
+                  :max="599"
+              /></a-form-item>
+              <a-form-item label="连续成功次数"
+                ><a-input-number
+                  v-model:value="form.healthCheckRise"
+                  class="w-full"
+                  :min="1"
+                  :max="100"
+              /></a-form-item>
+              <a-form-item label="连续失败次数"
+                ><a-input-number
+                  v-model:value="form.healthCheckFall"
+                  class="w-full"
+                  :min="1"
+                  :max="100"
+              /></a-form-item>
             </div>
           </template>
         </template>
@@ -445,18 +790,72 @@ onMounted(load);
           <a-form-item label="目标端口" required>
             <a-input-number v-model:value="form.targetPort" class="w-full" :max="65535" :min="1" />
           </a-form-item>
-          <a-form-item label="动态域名解析" extra="开启后生成 server ... resolve，并自动为 Upstream 定义共享内存区；DNS 地址和缓存时间在 DNS Resolver 菜单配置。">
+          <a-form-item
+            label="动态域名解析"
+            extra="开启后生成 server ... resolve，并自动为 Upstream 定义共享内存区；DNS 地址和缓存时间在 DNS Resolver 菜单配置。"
+          >
             <a-checkbox v-model:checked="form.resolveEnabled">启用 resolve 动态解析</a-checkbox>
           </a-form-item>
           <a-form-item v-if="form.resolveEnabled" label="共享内存（KB）" required>
-            <a-input-number v-model:value="form.zoneSizeKilobytes" class="w-full" :max="65536" :min="8" />
+            <a-input-number
+              v-model:value="form.zoneSizeKilobytes"
+              class="w-full"
+              :max="65536"
+              :min="8"
+            />
           </a-form-item>
-          <a-form-item label="主动健康检查"><a-checkbox v-model:checked="form.healthCheckEnabled">启用控制面探测配置</a-checkbox></a-form-item>
+          <a-form-item label="主动健康检查"
+            ><a-checkbox v-model:checked="form.healthCheckEnabled"
+              >启用控制面探测配置</a-checkbox
+            ></a-form-item
+          >
           <template v-if="form.healthCheckEnabled">
-            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测。"><a-select v-model:value="form.healthCheckType" :options="[{value:'TCP',label:'TCP（TCP）'},{value:'HTTP',label:'HTTP（HTTP）'},{value:'PING',label:'PING（PING）'}]" /></a-form-item>
-            <a-form-item v-if="form.healthCheckType==='HTTP'" label="检查路径"><a-input v-model:value="form.healthCheckPath" placeholder="/health" /></a-form-item>
-            <a-form-item v-if="form.healthCheckType==='HTTP'" label="HTTP Host / 自定义请求头"><a-input v-model:value="form.healthCheckHost" placeholder="Host（可选）" /><a-select v-model:value="form.healthCheckRequestHeaders" mode="tags" :token-separators="[',']" placeholder="请求头：Header: value" /></a-form-item>
-            <div class="grid grid-cols-3 gap-4"><a-form-item label="间隔（秒）"><a-input-number v-model:value="form.healthCheckIntervalSeconds" class="w-full" :min="1" /></a-form-item><a-form-item label="超时（毫秒）"><a-input-number v-model:value="form.healthCheckTimeoutMilliseconds" class="w-full" :min="50" /></a-form-item><a-form-item v-if="form.healthCheckType==='HTTP'" label="期望状态码"><a-input-number v-model:value="form.healthCheckExpectedStatus" class="w-full" :min="100" :max="599" /></a-form-item><a-form-item label="连续成功"><a-input-number v-model:value="form.healthCheckRise" class="w-full" :min="1" /></a-form-item><a-form-item label="连续失败"><a-input-number v-model:value="form.healthCheckFall" class="w-full" :min="1" /></a-form-item></div>
+            <a-form-item label="检查方式" extra="PING 使用 TCP 建连探测。"
+              ><a-select
+                v-model:value="form.healthCheckType"
+                :options="[
+                  { value: 'TCP', label: 'TCP（TCP）' },
+                  { value: 'HTTP', label: 'HTTP（HTTP）' },
+                  { value: 'PING', label: 'PING（PING）' },
+                ]"
+            /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="检查路径"
+              ><a-input v-model:value="form.healthCheckPath" placeholder="/health"
+            /></a-form-item>
+            <a-form-item v-if="form.healthCheckType === 'HTTP'" label="HTTP Host / 自定义请求头"
+              ><a-input
+                v-model:value="form.healthCheckHost"
+                placeholder="Host（可选）" /><key-value-editor
+                v-model="form.healthCheckRequestHeaders"
+                name-placeholder="请求头名称"
+                value-placeholder="请求头值"
+            /></a-form-item>
+            <div class="grid grid-cols-3 gap-4">
+              <a-form-item label="间隔（秒）"
+                ><a-input-number
+                  v-model:value="form.healthCheckIntervalSeconds"
+                  class="w-full"
+                  :min="1" /></a-form-item
+              ><a-form-item label="超时（毫秒）" extra="单次探测超过此时间判定为超时。"
+                ><a-input-number
+                  v-model:value="form.healthCheckTimeoutMilliseconds"
+                  class="w-full"
+                  :min="50" /></a-form-item
+              ><a-form-item v-if="form.healthCheckType === 'HTTP'" label="期望状态码" extra="HTTP 探测返回此状态码才视为成功。"
+                ><a-input-number
+                  v-model:value="form.healthCheckExpectedStatus"
+                  class="w-full"
+                  :min="100"
+                  :max="599" /></a-form-item
+              ><a-form-item label="连续成功" extra="连续达到此次数后恢复为健康。"
+                ><a-input-number
+                  v-model:value="form.healthCheckRise"
+                  class="w-full"
+                  :min="1" /></a-form-item
+              ><a-form-item label="连续失败" extra="连续达到此次数后标记为不健康。"
+                ><a-input-number v-model:value="form.healthCheckFall" class="w-full" :min="1"
+              /></a-form-item>
+            </div>
           </template>
         </template>
       </a-form>
@@ -467,21 +866,145 @@ onMounted(load);
         </div>
       </template>
     </a-drawer>
-    <a-drawer v-model:open="targetDrawerOpen" :title="`管理 ${selectedHttpUpstream?.name || ''} 的 HTTP 后端实例`" :width="720">
-      <a-alert class="mb-4" type="info" show-icon message="保存后请在“版本与审计”中生成原生配置并重载，新的后端实例才会参与转发。" />
-      <div class="mb-3 flex items-center justify-between"><span class="text-sm text-gray-500">{{ selectedHttpUpstream?.healthCheckEnabled ? `主动检查：${selectedHttpUpstream.healthCheckPath}，每 ${selectedHttpUpstream.healthCheckIntervalSeconds} 秒` : '未启用主动健康检查' }}</span><a-button :disabled="!selectedHttpUpstream?.healthCheckEnabled" :loading="healthChecking" @click="runHealthChecks">立即检查</a-button></div>
-      <a-alert v-if="healthResults.length" class="mb-4" :type="healthResults.every((item) => item.status === 'HEALTHY') ? 'success' : 'warning'" show-icon :message="healthResults.map((item) => `${item.targetHost}:${item.targetPort} ${item.status === 'HEALTHY' ? '健康' : item.status === 'NOT_CONFIGURED' ? '未配置' : '异常'}${item.httpStatus ? `（${item.httpStatus}）` : ''}`).join('；')" />
-      <a-table class="mb-5" :columns="targetColumns" :data-source="targetRows" :pagination="targetPager.table.value" @change="changeTargetPage" row-key="id" size="small">
+    <a-drawer
+      v-model:open="targetDrawerOpen"
+      :title="`管理 ${selectedHttpUpstream?.name || ''} 的 HTTP 后端实例`"
+      :width="720"
+      :mask-closable="false"
+    >
+      <a-alert
+        class="mb-4"
+        type="info"
+        show-icon
+        message="保存后请在“版本与审计”中生成原生配置并重载，新的后端实例才会参与转发。"
+      />
+      <div class="mb-3 flex items-center justify-between">
+        <span class="text-sm text-gray-500">{{
+          selectedHttpUpstream?.healthCheckEnabled
+            ? `主动检查：${selectedHttpUpstream.healthCheckPath}，每 ${selectedHttpUpstream.healthCheckIntervalSeconds} 秒`
+            : '未启用主动健康检查'
+        }}</span
+        ><a-button
+          :disabled="!selectedHttpUpstream?.healthCheckEnabled"
+          :loading="healthChecking"
+          @click="runHealthChecks"
+          >立即检查</a-button
+        >
+      </div>
+      <a-alert
+        v-if="healthResults.length"
+        class="mb-4"
+        :type="healthResults.every((item) => item.status === 'HEALTHY') ? 'success' : 'warning'"
+        show-icon
+        :message="
+          healthResults
+            .map(
+              (item) =>
+                `${item.targetHost}:${item.targetPort} ${item.status === 'HEALTHY' ? '健康' : item.status === 'NOT_CONFIGURED' ? '未配置' : '异常'}${item.httpStatus ? `（${item.httpStatus}）` : ''}`,
+            )
+            .join('；')
+        "
+      />
+      <a-table
+        class="mb-5"
+        :columns="targetColumns"
+        :data-source="targetRows"
+        :pagination="targetPager.table.value"
+        @change="changeTargetPage"
+        row-key="id"
+        size="small"
+      >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'health'">{{ record.maxFails }} 次失败 / {{ record.failTimeoutSeconds }} 秒</template>
-          <template v-else-if="column.key === 'status'"><a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag><a-tag v-if="record.resolveEnabled" color="blue">动态解析（resolve）</a-tag><a-tag v-if="record.backup" color="orange">备用</a-tag></template>
-          <template v-else-if="column.key === 'action'"><a-button type="link" @click="editTarget(record)">编辑</a-button><a-popconfirm title="确认删除该后端实例？" @confirm="removeTarget(record)"><a-button danger type="link">删除</a-button></a-popconfirm></template>
+          <template v-if="column.key === 'health'"
+            >{{ record.maxFails }} 次失败 / {{ record.failTimeoutSeconds }} 秒</template
+          >
+          <template v-else-if="column.key === 'status'"
+            ><a-tag :color="record.enabled ? 'green' : 'default'">{{
+              record.enabled ? '启用' : '停用'
+            }}</a-tag
+            ><a-tag v-if="record.resolveEnabled" color="blue">动态解析（resolve）</a-tag
+            ><a-tag v-if="record.backup" color="orange">备用</a-tag></template
+          >
+          <template v-else-if="column.key === 'action'"
+            ><a-button type="link" @click="editTarget(record)">编辑</a-button
+            ><a-popconfirm title="确认删除该后端实例？" @confirm="removeTarget(record)"
+              ><a-button danger type="link">删除</a-button></a-popconfirm
+            ></template
+          >
         </template>
       </a-table>
-      <a-empty v-if="!(selectedHttpUpstream?.targets?.length)" class="mb-5" description="尚未配置后端实例" />
-      <div class="mb-3 flex items-center justify-between"><span class="text-base font-medium">{{ editingTargetId ? '编辑后端实例' : '新增后端实例' }}</span><a-button type="link" @click="addTarget">清空并新增</a-button></div>
-      <a-form layout="vertical"><a-form-item label="后端地址" required><a-input v-model:value="targetForm.targetHost" placeholder="如 10.0.0.10 或 api.internal" /></a-form-item><div class="grid grid-cols-2 gap-4"><a-form-item label="后端端口" required><a-input-number v-model:value="targetForm.targetPort" class="w-full" :min="1" :max="65535" /></a-form-item><a-form-item label="权重"><a-input-number v-model:value="targetForm.weight" class="w-full" :min="1" :max="1000" /></a-form-item><a-form-item label="最大失败次数"><a-input-number v-model:value="targetForm.maxFails" class="w-full" :min="0" :max="100" /></a-form-item><a-form-item label="失败判定时间（秒）"><a-input-number v-model:value="targetForm.failTimeoutSeconds" class="w-full" :min="1" :max="3600" /></a-form-item></div><a-form-item extra="开启后生成 server 域名:端口 resolve；所属 Upstream 会自动生成 zone 共享内存区。"><a-checkbox v-model:checked="targetForm.resolveEnabled">启用 DNS 动态解析（resolve）</a-checkbox><a-checkbox v-model:checked="targetForm.backup" class="ml-4">作为备用实例</a-checkbox><a-checkbox v-model:checked="targetForm.enabled" class="ml-4">启用实例</a-checkbox></a-form-item></a-form>
-      <template #footer><div class="flex justify-end gap-2"><a-popconfirm v-if="editingTargetId" title="确认删除当前后端实例？" @confirm="removeCurrentTarget"><a-button danger>删除当前项</a-button></a-popconfirm><a-button @click="targetDrawerOpen=false">关闭</a-button><a-button type="primary" @click="saveTarget">{{ editingTargetId ? '保存修改' : '添加实例' }}</a-button></div></template>
+      <a-empty
+        v-if="!selectedHttpUpstream?.targets?.length"
+        class="mb-5"
+        description="尚未配置后端实例"
+      />
+      <a-button type="primary" @click="addTarget">新增后端实例</a-button>
+      <template #footer
+        ><div class="flex justify-end gap-2">
+          <a-button @click="targetDrawerOpen = false">关闭</a-button>
+        </div></template
+      >
+    </a-drawer>
+    <a-drawer
+      v-model:open="targetEditorOpen"
+      :title="editingTargetId ? '编辑后端实例' : '新增后端实例'"
+      :width="520"
+      :z-index="1100"
+      :mask-closable="false"
+      @click.stop
+      @mousedown.stop
+    >
+      <a-form layout="vertical">
+        <a-form-item label="后端地址" required extra="server：实际后端实例的 IP 地址或主机名。"
+          ><a-input
+            v-model:value="targetForm.targetHost"
+            placeholder="如 10.0.0.10 或 api.internal"
+        /></a-form-item>
+        <div class="grid grid-cols-2 gap-4">
+          <a-form-item label="后端端口" required extra="server：实际后端实例监听的 TCP 端口。"
+            ><a-input-number
+              v-model:value="targetForm.targetPort"
+              class="w-full"
+              :min="1"
+              :max="65535"
+          /></a-form-item>
+          <a-form-item label="权重" extra="weight：负载均衡权重，值越大分配到的请求越多。"
+            ><a-input-number v-model:value="targetForm.weight" class="w-full" :min="1" :max="1000"
+          /></a-form-item>
+          <a-form-item label="最大失败次数" extra="max_fails：失败达到此次数后暂时避开该后端。"
+            ><a-input-number v-model:value="targetForm.maxFails" class="w-full" :min="0" :max="100"
+          /></a-form-item>
+          <a-form-item label="失败判定时间（秒）" extra="fail_timeout：统计失败及暂时避开的时间窗口。"
+            ><a-input-number
+              v-model:value="targetForm.failTimeoutSeconds"
+              class="w-full"
+              :min="1"
+              :max="3600"
+          /></a-form-item>
+        </div>
+        <a-form-item
+          extra="开启后生成 server 域名:端口 resolve；所属 Upstream 会自动生成 zone 共享内存区。"
+          ><a-checkbox v-model:checked="targetForm.resolveEnabled"
+            >启用 DNS 动态解析（resolve）</a-checkbox
+          ><a-checkbox v-model:checked="targetForm.backup" class="ml-4">作为备用实例</a-checkbox
+          ><a-checkbox v-model:checked="targetForm.enabled" class="ml-4"
+            >启用实例</a-checkbox
+          ></a-form-item
+        >
+      </a-form>
+      <template #footer
+        ><div class="flex justify-end gap-2">
+          <a-popconfirm
+            v-if="editingTargetId"
+            title="确认删除当前后端实例？"
+            @confirm="removeCurrentTarget"
+            ><a-button danger>删除当前项</a-button></a-popconfirm
+          ><a-button @click="targetEditorOpen = false">取消</a-button
+          ><a-button type="primary" @click="saveTarget">{{
+            editingTargetId ? '保存修改' : '添加实例'
+          }}</a-button>
+        </div></template
+      >
     </a-drawer>
   </div>
 </template>

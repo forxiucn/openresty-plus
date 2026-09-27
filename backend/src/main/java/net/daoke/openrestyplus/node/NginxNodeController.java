@@ -49,7 +49,7 @@ public class NginxNodeController {
     @Operation(summary = "Create an Nginx node")
     public NodeView create(@PathVariable UUID centerId, @Valid @RequestBody CreateNodeRequest request) {
         requireCenter(centerId);
-        var node = new NginxNode(centerId, request.name(), request.protocol(), request.host(), request.servicePort(), request.controlApiUrl());
+        var node = new NginxNode(centerId, request.name(), request.host(), request.servicePort(), request.controlApiUrl());
         var saved = nodes.save(node);
         audit.success(centerId, "NGINX_NODE_CREATED", "NGINX_NODE", saved.getId());
         return NodeView.from(saved);
@@ -58,7 +58,7 @@ public class NginxNodeController {
     public NodeView update(@PathVariable UUID centerId, @PathVariable UUID nodeId, @Valid @RequestBody UpdateNodeRequest request) {
         var node = nodes.findById(nodeId).filter(value -> value.getCenterId().equals(centerId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Nginx node not found"));
-        node.apply(request.name(), request.protocol(), request.host(), request.servicePort(), request.controlApiUrl(), request.enabled());
+        node.apply(request.name(), request.host(), request.servicePort(), request.controlApiUrl(), request.enabled());
         var saved = nodes.save(node);
         audit.success(centerId, "NGINX_NODE_UPDATED", "NGINX_NODE", nodeId);
         return NodeView.from(saved);
@@ -79,19 +79,18 @@ public class NginxNodeController {
 
     public record CreateNodeRequest(
         @NotBlank String name,
-        @NotNull NginxProtocol protocol,
         @NotBlank String host,
         @Min(1) @Max(65535) int servicePort,
         String controlApiUrl
     ) { }
-    public record UpdateNodeRequest(@NotBlank String name, @NotNull NginxProtocol protocol, @NotBlank String host,
+    public record UpdateNodeRequest(@NotBlank String name, @NotBlank String host,
                                     @Min(1) @Max(65535) int servicePort, String controlApiUrl, boolean enabled) { }
 
-    public record NodeView(UUID id, String name, NginxProtocol protocol, String host, int servicePort,
+    public record NodeView(UUID id, String name, String host, int servicePort,
                            String controlApiUrl, boolean enabled) {
         static NodeView from(NginxNode node) {
-            return new NodeView(node.getId(), node.getName(), node.getProtocol(), node.getHost(),
-                node.getServicePort(), node.getControlApiUrl(), node.isEnabled());
+            return new NodeView(node.getId(), node.getName(), node.getHost(), node.getServicePort(),
+                node.getControlApiUrl(), node.isEnabled());
         }
     }
 }

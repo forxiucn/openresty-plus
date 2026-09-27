@@ -11,7 +11,7 @@ register_node() {
     fi
     if curl -fsS -X POST "${base_url}/api/centers/${center_id}/nodes" \
       -H 'Content-Type: application/json' \
-      -d '{"name":"'"${name}"'","protocol":"HTTP","host":"127.0.0.1","servicePort":'"${port}"',"controlApiUrl":"http://127.0.0.1:'"${api_port}"'"}' >/dev/null; then
+      -d '{"name":"'"${name}"'","host":"127.0.0.1","servicePort":'"${port}"',"controlApiUrl":"http://127.0.0.1:'"${api_port}"'"}' >/dev/null; then
       return 0
     fi
     sleep 2
@@ -21,4 +21,3 @@ register_node() {
 }
 
 register_node openresty-east-1 18080 18081
-register_node openresty-east-2 28080 28081

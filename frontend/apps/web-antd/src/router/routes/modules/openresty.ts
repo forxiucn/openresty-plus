@@ -1,10 +1,10 @@
 import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
+  { component: () => import('#/views/openresty/dashboard/index.vue'), meta: { icon: 'lucide:layout-dashboard', order: -11, title: 'Dashboard' }, name: 'OpenRestyDashboard', path: '/openresty/dashboard' },
   {
     component: () => import('#/views/openresty/centers/index.vue'),
     meta: {
-      affixTab: true,
       icon: 'lucide:map-pinned',
       order: -10,
       title: '中心与节点',
@@ -23,6 +23,7 @@ const routes: RouteRecordRaw[] = [
     path: '/openresty/http-config',
   },
   { component: () => import('#/views/openresty/http-server/index.vue'), meta: { hideInMenu: true, title: 'Server 配置' }, name: 'HttpServerDetail', path: '/openresty/http-servers' },
+  { component: () => import('#/views/openresty/node-logs/index.vue'), meta: { icon: 'lucide:scroll-text', order: -8.6, title: '实例日志' }, name: 'OpenRestyNodeLogs', path: '/openresty/node-logs' },
   { component: () => import('#/views/openresty/http-servers/index.vue'), meta: { icon: 'lucide:server', order: -8.8, title: 'Server 配置' }, name: 'HttpServerManagement', path: '/openresty/http-server-config' },
   {
     component: () => import('#/views/openresty/http-location/index.vue'),
@@ -49,6 +50,12 @@ const routes: RouteRecordRaw[] = [
     },
     name: 'RuntimeConfigurationManagement',
     path: '/openresty/runtime-configurations',
+  },
+  {
+    component: () => import('#/views/openresty/tls-certificates/index.vue'),
+    meta: { icon: 'lucide:badge-check', order: -7.8, title: '证书管理' },
+    name: 'TlsCertificateManagement',
+    path: '/openresty/tls-certificates',
   },
   {
     component: () => import('#/views/openresty/dns-resolvers/index.vue'),

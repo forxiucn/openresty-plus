@@ -2,7 +2,7 @@
 
 ## 领域边界
 
-本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。MySQL 保存结构化配置、不可变版本快照和审计；Spring Boot 控制面负责校验、生成原生配置和发布编排；管理 Web 提供可视化操作；OpenResty Lua 负责已发布运行时快照，Control API 负责原生配置 reload。
+本项目管理多中心 OpenResty/Nginx 配置的版本、策略和发布状态。MySQL 保存结构化配置、不可变版本快照和审计；Spring Boot 控制面负责校验、生成原生配置和发布编排；管理 Web 提供可视化操作；OpenResty Lua 负责已发布运行时快照，Control API 负责原生配置 reload；Filebeat 将节点日志发送到 Kafka，控制面再通过 SSE 推送到 Web 控制台。
 
 ## 术语
 
@@ -83,6 +83,10 @@ Flyway SQL 是 MySQL schema 的唯一来源；JPA 只负责运行时映射，Hib
 ### 节点发布通道
 
 当前联调节点通过项目目录绑定挂载读取控制面生成目录。节点本机 Control API 仍使用 Unix Socket，控制面通过节点登记的 HTTP 转发地址调用 reload；生产环境可继续采用受限 SSH/rsync，但不属于当前 Compose 联调闭环。
+
+### 实例日志通道
+
+节点日志不由控制面直接读取作为主链路。每个节点配套 Filebeat，采集 `/var/log/nginx/*.access.log` 和 `/var/log/nginx/*.error.log`，写入 Kafka topic `dtl-602-openresty-plus`。事件必须携带 `openresty.node_name` 和 `openresty_log_type`，控制面按节点缓存最近事件并提供 SSE；文件读取接口只作为故障排查备用接口。
 
 ### Control API 发布硬依赖
 
