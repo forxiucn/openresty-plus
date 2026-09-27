@@ -16,7 +16,7 @@
 
 建设一个以中心（Center）为发布边界的 OpenResty 配置管理平台：
 
-- 使用 Go 控制面统一提供已迁移资源的结构化配置和审计查询；Java 控制面在迁移期间保留为发布与运行时能力的参考实现。
+- 使用 Go 控制面统一提供已迁移资源的结构化配置和审计查询；未迁移的发布与运行时能力在完成 Go 实现前不可用。
 - 使用管理 Web 提供中心、节点实例、HTTP/Stream 资源、策略和发布操作。
 - 使用 MySQL 作为配置权威来源，Redis 仅作为可选基础设施。
 - 将配置渲染为可预览、可校验、可物化的原生 Nginx 配置制品。
@@ -69,7 +69,7 @@
 
 - 采用中心（Center）作为配置和发布边界，节点实例归属于中心。
 - 使用 MySQL 持久化中心配置、节点实例、HTTP/Stream 资源、策略、配置版本、发布结果和审计记录；Redis 不作为配置权威。
-- Java 参考实现使用实体 `apply(...)` 与 record 请求/响应模型；Go 控制面使用显式 SQL、UUID 二进制转换和 JSON DTO，REST 路径及字段保持兼容。
+- Go 控制面使用显式 SQL、UUID 二进制转换和 JSON DTO，REST 路径及字段保持兼容。
 - 所有数组和结构化配置使用 JSON 列，并由 Jackson 统一序列化。
 - 所有 schema 变更必须通过新的 Flyway migration 提供，Hibernate 只做 `ddl-auto=validate` 校验。
 - HTTP 错误页面采用 JSON 映射保存，支持两类键：
@@ -120,7 +120,7 @@
   - 错误页面只渲染当前选中的状态码和 Content-Type 编辑器。
   - 新增、切换、删除和保存自定义错误页面的交互反馈正确。
   - 加载旧配置时缺失错误页面字段仍能使用默认空映射，不导致页面崩溃。
-- Go 模块执行 `go test ./...`、`go vet ./...` 和 Docker Compose 健康检查；Java 参考模块继续执行 Maven 测试与编译。原生配置预览只能在 Java 控制面模式下验证。
+- Go 模块执行 `go test ./...`、`go vet ./...` 和 Docker Compose 健康检查。原生配置预览需在 Go 实现后验证。
 
 ## Out of Scope
 
@@ -137,9 +137,9 @@
 
 ## 当前交付状态（2026-09-27）
 
-- `docker-compose.yaml` 的 `control-plane` 已切换到 `backend-go`，Go 服务监听 8080，并已验证 `/healthz`、中心列表、HTTP 设置和 Stream Server 查询可访问。
-- Go 已实现 Center、节点、HTTP 设置、HTTP Upstream/Target、HTTP Server/Location、TLS、Stream、DNS Resolver 与审计查询接口。
-- Java 控制面仍是配置版本/草稿/回滚、原生配置渲染/物化、Control API reload、中心发布、字典、IP/API 策略资源、节点指标和 Kafka/SSE 日志的唯一实现；这些能力尚未迁移到 Go，当前 Go Compose 环境不能提供完整发布闭环。
+- `docker-compose.yaml` 的 `control-plane` 使用 `backend`，Go 服务监听 8080，并已验证 `/healthz`、中心列表、HTTP 设置、Stream Server 查询与节点指标接口可访问。
+- Go 已实现 Center、节点、节点指标、HTTP 设置、HTTP Upstream/Target、HTTP Server/Location、TLS、Stream、DNS Resolver 与审计查询接口。
+- 原 Java 控制面已删除；配置版本/草稿/回滚、原生配置渲染/物化、Control API reload、中心发布、字典、IP/API 策略资源和 Kafka/SSE 日志尚未迁移，当前不能提供完整发布闭环。
 - 因此，“Go 控制面已启动”仅证明已迁移资源管理 API 可用，不证明配置已经渲染、reload 或发布到节点。
 
 ## Further Notes

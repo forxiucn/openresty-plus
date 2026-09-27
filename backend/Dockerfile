@@ -1,14 +1,11 @@
-FROM maven:3.9.14-eclipse-temurin-21 AS build
-WORKDIR /workspace
-COPY pom.xml .
-COPY src src
-RUN --mount=type=cache,id=openresty-plus-maven-repository,target=/root/.m2 \
-    mvn -B -DskipTests package
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/control-plane ./cmd/control-plane
 
-FROM eclipse-temurin:21-jre
-WORKDIR /app
-RUN useradd --system --create-home --uid 10001 appuser
-COPY --from=build /workspace/target/openresty-plus-control-plane-*.jar /app/app.jar
-USER 10001
+FROM gcr.io/distroless/static-debian13:nonroot
+COPY --from=build /out/control-plane /control-plane
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+ENTRYPOINT ["/control-plane"]

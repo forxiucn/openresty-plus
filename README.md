@@ -4,7 +4,7 @@
 
 ## 当前运行状态
 
-`docker-compose.yaml` 已切换为启动 Go 控制面（`backend-go/`，监听 `:8080`）。Java `backend/` 仍保留为原始实现与尚未迁移能力的参考来源，不能与 Go 控制面同时占用 8080。
+`docker-compose.yaml` 启动 Go 控制面（`backend/`，监听 `:8080`）。原 Java 控制面已删除，仓库只保留 Go 后端。
 
 已迁移到 Go 的 REST 接口包括：
 
@@ -18,8 +18,7 @@
 
 ## 目录
 
-- `backend-go/`：当前 Compose 使用的 Go 控制面（Go 1.26）。
-- `backend/`：Spring Boot 4.1.1 / Java 21 原始控制面与迁移参考实现。
+- `backend/`：当前 Compose 使用的 Go 控制面（Go 1.26）。
 - `frontend/`：Vben Admin v5.7.0 的 `@vben/web-antd` 控制台。
 - `deploy/`：OpenResty、Filebeat、节点注册及发布脚本。
 - `docs/`：PRD 与 ADR。
@@ -31,7 +30,7 @@
 2. 启动 Go 控制面：
 
    ```bash
-   cd backend-go
+   cd backend
    go test ./...
    go run ./cmd/control-plane
    ```
@@ -44,7 +43,7 @@
    pnpm -F @vben/web-antd run dev
    ```
 
-Java 后端只用于迁移对照或验证尚未迁移接口：在 `backend/` 中设置 `SPRING_PROFILES_ACTIVE=local` 后运行 `mvn spring-boot:run`，且需先停止占用 8080 的 Go 控制面。
+Go 后端未迁移的功能当前不可用；不能再通过本仓库启动 Java 服务作为回退。
 
 ## Docker 联调
 
@@ -75,6 +74,6 @@ docker compose down
 ## 配置与安全边界
 
 - MySQL 是配置权威；真实密码不得写入源码、文档、前端资源或 Git。
-- 保存配置不等同于节点生效。原生配置生成、reload 与发布闭环当前仍在 Java 实现中，尚未切入 Go Compose。
+- 保存配置不等同于节点生效。原生配置生成、reload 与发布闭环尚未迁移到 Go 后端，当前不可用。
 - 业务监听端口、健康状态端点和 Control API 是不同端口：业务端口承载流量；节点的 18080 用于健康/状态读取；18081 是 Control API 转发端口。
 - 生产环境不得使用 `local` profile，也不得将节点 Control API 暴露到不受控网络。

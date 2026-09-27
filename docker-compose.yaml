@@ -4,7 +4,7 @@ services:
   control-plane:
     network_mode: host
     build:
-      context: ./backend-go
+      context: ./backend
     environment:
       SPRING_PROFILES_ACTIVE: local
       OPENRESTY_DB_URL: ${OPENRESTY_DB_URL}

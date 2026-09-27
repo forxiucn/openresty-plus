@@ -1,9 +1,21 @@
-# OpenResty Plus Java Reference Control Plane
+# OpenResty Plus Go Control Plane
 
-Spring Boot 4.1.1 / Java 21 原始控制面。当前 `docker-compose.yaml` 默认启动 `../backend-go`，本目录用于保留尚未迁移到 Go 的版本、发布、原生配置渲染、Control API reload、策略、节点指标和日志流实现。
+当前 Compose 使用的控制面，监听 `:8080`，通过 `OPENRESTY_DB_URL`、`OPENRESTY_DB_USERNAME` 与 `OPENRESTY_DB_PASSWORD` 连接外部 MySQL。
 
-## Local run
+## 已实现接口
 
-停止 Go 控制面后，设置 `SPRING_PROFILES_ACTIVE=local` 以及 `OPENRESTY_DB_*` / `OPENRESTY_REDIS_*` 环境变量，再从本目录运行 `mvn spring-boot:run`。
+Center、节点、HTTP 设置、HTTP Upstream/后端实例、HTTP Server/Location、TLS、Stream、DNS Resolver 和审计事件查询。
 
-The local profile disables authentication only for development. Production requires OIDC and must not use this profile.
+## 尚未迁移
+
+运行时版本、草稿差异、原生配置渲染/物化、Control API reload、部署编排、字典、IP/API 策略资源，以及 Kafka/SSE 日志链路。原 Java 实现已移除，以上能力须完成 Go 迁移后才能使用。
+
+## 开发与检查
+
+```bash
+go test ./...
+go vet ./...
+go run ./cmd/control-plane
+```
+
+Docker Compose 从仓库根目录以 `backend/Dockerfile` 构建该服务。
