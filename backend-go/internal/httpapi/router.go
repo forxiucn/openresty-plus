@@ -72,6 +72,8 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/centers/{centerID}/dns-resolvers", server.createDNSResolver)
 	mux.HandleFunc("PUT /api/centers/{centerID}/dns-resolvers/{resolverID}", server.updateDNSResolver)
 	mux.HandleFunc("DELETE /api/centers/{centerID}/dns-resolvers/{resolverID}", server.deleteDNSResolver)
+	mux.HandleFunc("GET /api/centers/{centerID}/audit-events", server.listAuditEvents)
+	mux.HandleFunc("GET /api/centers/{centerID}/audit-events/paged", server.pageAuditEvents)
 	return mux
 }
 
