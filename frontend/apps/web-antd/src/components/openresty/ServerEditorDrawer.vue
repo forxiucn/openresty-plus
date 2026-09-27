@@ -54,6 +54,17 @@ async function loadLocations() {
   const result = await api<any>(`/centers/${props.centerId}/http/servers/${form.value.id}/locations/paged?page=1&size=200`);
   locations.value = result.records || result.content || result.items || result || [];
 }
+async function resolveServerId() {
+  if (!props.centerId || !form.value.id) return form.value.id;
+  const servers = await api<Server[]>(`/centers/${props.centerId}/http/servers`);
+  const current = servers.find((server) => server.id === form.value.id);
+  if (current) return current.id;
+  const source = props.server || form.value;
+  const replacement = servers.find((server) => server.domain === source.domain && server.listenPort === source.listenPort);
+  if (!replacement) throw new Error('HTTP server not found');
+  form.value.id = replacement.id;
+  return replacement.id;
+}
 watch(() => [props.open, props.server] as const, async ([open]) => {
   if (!open) return;
   section.value = 'basic'; form.value = { hideVersion: true, responseHeaders: [], sslEnabled: false, listenPort: 80, ...clone(props.server) };
@@ -73,11 +84,11 @@ async function saveServer() {
     const responseHeaders = (form.value.responseHeaders || []).filter((header: string) => !header.toLowerCase().startsWith('server: '));
     if (form.value.hideVersion && serverHeaderValue.value.trim()) responseHeaders.push(`Server: ${serverHeaderValue.value.trim()}`);
     form.value.responseHeaders = responseHeaders;
-    const id = form.value.id;
+    const id = await resolveServerId();
     const base = { domain: form.value.domain.trim(), listenPort: form.value.listenPort, sslEnabled: form.value.sslEnabled, certificateId: form.value.certificateId, upstreamId: form.value.upstreamId, accessLog: form.value.accessLog, errorLog: form.value.errorLog };
     const saved = await api<Server>(`/centers/${props.centerId}/http/servers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(base) });
     form.value = { ...form.value, ...saved };
-    if (form.value.id) await api(`/centers/${props.centerId}/http/servers/${form.value.id}/directives`, { method: 'PUT', body: JSON.stringify({ rootPath: form.value.rootPath, hideVersion: form.value.hideVersion, responseHeaders: form.value.responseHeaders || [] }) });
+    if (form.value.id) await api(`/centers/${props.centerId}/http/servers/${form.value.id}/directives`, { method: 'PUT', body: JSON.stringify({ rootPath: form.value.rootPath, hideVersion: form.value.hideVersion, responseHeaders: form.value.responseHeaders || [], errorPages: form.value.errorPages || {} }) });
     window.dispatchEvent(new Event('openresty-config-saved')); message.success('Server 草稿已保存，发布后生效'); emit('saved');
   } catch (e) { message.error(e instanceof Error ? e.message : '保存 Server 失败'); }
   finally { saving.value = false; }
