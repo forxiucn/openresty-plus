@@ -55,6 +55,18 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/centers/{centerID}/tls-certificates", server.createTLSCertificate)
 	mux.HandleFunc("PUT /api/centers/{centerID}/tls-certificates/{certificateID}", server.updateTLSCertificate)
 	mux.HandleFunc("DELETE /api/centers/{centerID}/tls-certificates/{certificateID}", server.deleteTLSCertificate)
+	mux.HandleFunc("GET /api/centers/{centerID}/stream/upstreams", server.listStreamUpstreams)
+	mux.HandleFunc("GET /api/centers/{centerID}/stream/upstreams/paged", server.pageStreamUpstreams)
+	mux.HandleFunc("POST /api/centers/{centerID}/stream/upstreams", server.createStreamUpstream)
+	mux.HandleFunc("PUT /api/centers/{centerID}/stream/upstreams/{upstreamID}", server.updateStreamUpstream)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/stream/upstreams/{upstreamID}", server.deleteStreamUpstream)
+	mux.HandleFunc("GET /api/centers/{centerID}/stream/servers", server.listStreamServers)
+	mux.HandleFunc("GET /api/centers/{centerID}/stream/servers/paged", server.pageStreamServers)
+	mux.HandleFunc("POST /api/centers/{centerID}/stream/servers", server.createStreamServer)
+	mux.HandleFunc("PUT /api/centers/{centerID}/stream/servers/{streamServerID}", server.updateStreamServer)
+	mux.HandleFunc("DELETE /api/centers/{centerID}/stream/servers/{streamServerID}", server.deleteStreamServer)
+	mux.HandleFunc("PUT /api/centers/{centerID}/stream/servers/{streamServerID}/dynamic-dns", server.putStreamServerDynamicDNS)
+	mux.HandleFunc("PUT /api/centers/{centerID}/stream/servers/{streamServerID}/policy-settings", server.putStreamServerPolicySettings)
 	return mux
 }
 
