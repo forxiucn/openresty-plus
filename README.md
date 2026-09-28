@@ -4,7 +4,7 @@
 
 ## 当前运行状态
 
-`docker-compose.yaml` 启动 Go 控制面（`backend/`，监听 `:8081`）。原 Java 控制面已删除，仓库只保留 Go 后端。
+`docker-compose.yaml` 启动 Go 控制面（`backend/`，监听 `:8081`）。
 
 已迁移到 Go 的 REST 接口包括：
 
@@ -14,7 +14,7 @@
 - TLS 证书；Stream Upstream 与 Stream Server；
 - DNS Resolver 与审计事件查询。
 
-以下能力目前仍只存在于 Java 控制面，Go Compose 模式下不可用：配置版本/草稿/回滚、原生配置预览与物化、Control API reload、完整发布编排、策略资源管理、字典管理、节点指标和 Kafka/SSE 日志流。它们是后续 Go 迁移与联调范围，不能因 Go 服务健康检查通过而视为已完成。
+配置版本/草稿/回滚、原生配置预览与物化、Control API reload、完整发布编排、策略资源管理、字典管理、节点指标和 Kafka/SSE 日志流仍在持续完善；不能因 Go 服务健康检查通过而视为完整发布闭环已完成。
 
 ## 目录
 
@@ -43,7 +43,7 @@
    pnpm -F @vben/web-antd run dev
    ```
 
-Go 后端未迁移的功能当前不可用；不能再通过本仓库启动 Java 服务作为回退。
+尚未实现的功能当前不可用；不得以未验证的替代服务作为回退。
 
 ## Docker 联调
 

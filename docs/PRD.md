@@ -70,8 +70,8 @@
 - 采用中心（Center）作为配置和发布边界，节点实例归属于中心。
 - 使用 MySQL 持久化中心配置、节点实例、HTTP/Stream 资源、策略、配置版本、发布结果和审计记录；Redis 不作为配置权威。
 - Go 控制面使用显式 SQL、UUID 二进制转换和 JSON DTO，REST 路径及字段保持兼容。
-- 所有数组和结构化配置使用 JSON 列，并由 Jackson 统一序列化。
-- 所有 schema 变更必须通过新的 Flyway migration 提供，Hibernate 只做 `ddl-auto=validate` 校验。
+- 所有数组和结构化配置使用 JSON 列，并由 Go 控制面统一序列化。
+- 所有 schema 变更必须提供可重复执行的迁移脚本，并在本地 MySQL 实例验证。
 - HTTP 错误页面采用 JSON 映射保存，支持两类键：
   - `状态码`：该状态码的默认页面。
   - `状态码|Content-Type`：该状态码在指定请求 Content-Type 下的专用页面。
@@ -139,12 +139,12 @@
 
 - `docker-compose.yaml` 的 `control-plane` 使用 `backend`，Go 服务监听 8081，并已验证 `/healthz`、中心列表、HTTP 设置、Stream Server 查询与节点指标接口可访问。
 - Go 已实现 Center、节点、节点指标、HTTP 设置、HTTP Upstream/Target、HTTP Server/Location、TLS、Stream、DNS Resolver 与审计查询接口。
-- 原 Java 控制面已删除；配置版本/草稿/回滚、原生配置渲染/物化、Control API reload、中心发布、字典、IP/API 策略资源和 Kafka/SSE 日志尚未迁移，当前不能提供完整发布闭环。
+- 配置版本/草稿/回滚、原生配置渲染/物化、Control API reload、中心发布、字典、IP/API 策略资源和 Kafka/SSE 日志尚未完整实现，当前不能提供完整发布闭环。
 - 因此，“Go 控制面已启动”仅证明已迁移资源管理 API 可用，不证明配置已经渲染、reload 或发布到节点。
 
 ## Further Notes
 
-- 当前项目存在联调 Compose 和外部 MySQL/Redis 依赖，部署环境必须确认 Flyway migration 已执行。
+- 当前项目的联调 Compose 使用本地 MySQL、Redis 和 Kafka；部署环境必须确认数据库结构与控制面版本兼容。
 - HTTP 请求的 Content-Type 选择实际读取 `$http_content_type`；它表示请求头 Content-Type，不是最终响应的 Content-Type。若未来需要按客户端 `Accept` 选择页面，应另行引入 `$http_accept` 维度，避免语义混淆。
 - “配置已保存”“原生配置已生成”“节点已 reload”“请求实际返回正确页面”是四个不同的验证层级，界面和测试报告应分别呈现。
 - 错误页面内容中如果需要 JSON，建议使用合法 JSON 文本，并由页面编辑器提供格式提示；本 PRD不强制自动格式化用户输入。

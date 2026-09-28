@@ -40,7 +40,7 @@
 
 ### 配置 JSON
 
-控制面、策略文件和前后端 API 中的 JSON 统一使用 Jackson 进行序列化和反序列化；不使用 Fastjson。
+控制面、策略文件和前后端 API 中的 JSON 统一使用 Go 标准库 `encoding/json` 进行序列化和反序列化。
 
 ### Web 配置生效
 
@@ -78,7 +78,7 @@ Go 控制面使用 Go 1.26、`go test ./...` 和 `go vet ./...`；Docker 镜像�
 
 ### 数据库迁移
 
-Flyway SQL 是 MySQL schema 的唯一来源；JPA 只负责运行时映射，Hibernate 使用 `ddl-auto=validate`，禁止自动建表或修改结构。
+版本化 SQL 是 MySQL schema 的唯一来源；控制面禁止自动建表或修改结构。
 
 ### 节点发布通道
 

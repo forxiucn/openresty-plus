@@ -8,7 +8,7 @@ Center、节点、HTTP 设置、HTTP Upstream/后端实例、HTTP Server/Locatio
 
 ## 尚未迁移
 
-运行时版本、草稿差异、原生配置渲染/物化、Control API reload、部署编排、字典、IP/API 策略资源，以及 Kafka/SSE 日志链路。原 Java 实现已移除，以上能力须完成 Go 迁移后才能使用。
+运行时版本、草稿差异、原生配置渲染/物化、Control API reload、部署编排、字典、IP/API 策略资源，以及 Kafka/SSE 日志链路。以上能力完成后方可使用。
 
 ## 开发与检查
 

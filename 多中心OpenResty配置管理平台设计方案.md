@@ -2,15 +2,15 @@
 
 > 文档状态：设计基线（供评审和后续实现）  
 > 适用目标：多中心、多节点的 HTTP/HTTPS 与 TCP/UDP 配置集中管理  
-> 当前实现原则：MySQL 保存结构化配置、版本快照和审计，Spring Boot 编排发布，Vue Web 提供图形化管理，OpenResty Lua 承载可热更新运行时规则，Control API 负责原生配置 reload；生产运行时不依赖 AI。
+> 当前实现原则：MySQL 保存结构化配置、版本快照和审计，Go 控制面编排发布，Vue Web 提供图形化管理，OpenResty Lua 承载可热更新运行时规则，Control API 负责原生配置 reload；生产运行时不依赖 AI。
 
-> 文档状态说明：本文保留了项目早期 Git/JGit/SSH 方案的设计推演，当前代码已切换为 MySQL 运行时配置。实际开发和部署以 `README.md`、`CONTEXT.md`、ADR-0011 及当前 `docker-compose.yaml` 为准。
+> 文档状态说明：本文保留了项目早期 Git/SSH 方案的设计推演，当前代码已切换为 MySQL 运行时配置。实际开发和部署以 `README.md`、`CONTEXT.md`、ADR-0011 及当前 `docker-compose.yaml` 为准。
 
 ## 1. 执行摘要
 
-平台采用“Git 配置仓库 + Vue 管理前端 + Spring Boot 控制面 + 受限 SSH/节点本机发布脚本 + OpenResty 数据面”的架构。前端使用 `@vben/web-antd` 快速构建，提供中心、节点、协议、域名、端口、API、访问策略、版本、发布、回滚和审计界面。所有变更先进入 Git 并经过审核；部署固定到不可变 commit；控制面生成中心级发布计划，经受限 SSH 调度节点本机固定脚本；节点在切换前验证配置，随后原子切换活动配置并由本机脚本通过 Unix socket 调用 Control API 触发 reload；系统逐节点记录结果并在失败时执行补偿回滚。
+平台采用“Git 配置仓库 + Vue 管理前端 + Go 控制面 + 受限 SSH/节点本机发布脚本 + OpenResty 数据面”的架构。前端使用 `@vben/web-antd` 快速构建，提供中心、节点、协议、域名、端口、API、访问策略、版本、发布、回滚和审计界面。所有变更先进入 Git 并经过审核；部署固定到不可变 commit；控制面生成中心级发布计划，经受限 SSH 调度节点本机固定脚本；节点在切换前验证配置，随后原子切换活动配置并由本机脚本通过 Unix socket 调用 Control API 触发 reload；系统逐节点记录结果并在失败时执行补偿回滚。
 
-不部署常驻节点代理。Spring Boot 只通过专用 SSH 用户调用节点上预置的固定发布脚本；该账号不能获得任意 shell，sudo 仅允许白名单脚本。脚本在节点本机负责文件暂存、nginx -t、原子切换、访问 Control API 的本机 Unix socket、健康检查及回滚。Spring Boot 不直接连接节点 Control API，也不持有 root SSH 权限。
+不部署常驻节点代理。Go 控制面只通过专用 SSH 用户调用节点上预置的固定发布脚本；该账号不能获得任意 shell，sudo 仅允许白名单脚本。脚本在节点本机负责文件暂存、nginx -t、原子切换、访问 Control API 的本机 Unix socket、健康检查及回滚。Go 控制面不直接连接节点 Control API，也不持有 root SSH 权限。
 
 设计基线假设：使用支持 Control API 的 OpenResty/NGINX 构建，并在验证阶段确认其版本及编译参数。若所用 OpenResty 构建没有该 API，必须选择受支持的发行版/构建，或明确采用受限信号控制作为替代；不可把 API 能力视作所有 Nginx 版本默认具备。
 
@@ -40,7 +40,7 @@
 flowchart LR
   U[配置作者 / 审批人] --> G[Git 配置仓库]
   U --> W[Vue 管理界面 @vben/web-antd]
-  W -->|HTTPS REST API| C[Spring Boot 控制面]
+  W -->|HTTPS REST API| C[Go 控制面]
   C --> G
   C --> DB[(发布与审计数据库)]
   C --> Q[任务队列 / Outbox]
@@ -65,7 +65,7 @@ flowchart LR
 | 组件 | 职责 | 不应承担的职责 |
 |---|---|---|
 | Git 仓库 | 保存配置源文件、校验工具、模板与变更历史；保护分支和审批 | 保存明文私钥；充当发布运行状态数据库 |
-| Spring Boot 控制面 | 身份鉴权、授权、校验编排、发布计划、锁、状态机、审计、版本查询；经受限 SSH 触发固定节点脚本 | 在请求线程中执行长时间远程命令；直接连接 Control API；持有 root 私钥或任意 shell 权限 |
+| Go 控制面 | 身份鉴权、授权、校验编排、发布计划、锁、状态机、审计、版本查询；经受限 SSH 触发固定节点脚本 | 在请求线程中执行长时间远程命令；直接连接 Control API；持有 root 私钥或任意 shell 权限 |
 | Vue 管理界面 | 展示中心拓扑、配置对象、版本差异、发布状态和审计；通过 API 发起授权操作 | 直接连接 Git、数据库、节点 SSH 或 Nginx Control API；在浏览器保存秘密 |
 | 节点固定发布脚本 | 校验任务参数、接收/读取制品、暂存、nginx -t、原子切换、本机 Control API 调用、健康检查、回报结果 | 接受任意命令、任意路径或任意 nginx 指令 |
 | OpenResty | 使用活动配置处理流量；通过本机控制接口 reload | 访问 Git 或管理数据库 |
@@ -329,9 +329,9 @@ rules:
 
 ### 6.3 Git 操作
 
-- JGit 按完整 commit 检出。Sparse checkout 仅用于降低取数范围，不是安全边界；所有读取路径做规范化并拒绝 `..`、符号链接逃逸和非预期目录。
+- Git 按完整 commit 检出。Sparse checkout 仅用于降低取数范围，不是安全边界；所有读取路径做规范化并拒绝 `..`、符号链接逃逸和非预期目录。
 - 建议每个发布任务使用独立临时 worktree/裸仓库对象库与隔离目录，避免并发共享 index/worktree。
-- JGit 的 sparse-checkout 行为需针对所用版本验证；若实现限制不足，可用固定策略的 git CLI 或镜像服务，设计仍要求 commit 和路径集合确定且可审计。
+- Git 客户端的 sparse-checkout 行为需针对所用版本验证；若实现限制不足，可用固定策略的镜像服务，设计仍要求 commit 和路径集合确定且可审计。
 - 每次版本查询与回滚均校验 commit 属于受信任分支/标签范围，不接受任意外部 commit 字符串作为授权依据。
 
 ## 7. 发布协议与状态机
@@ -361,7 +361,7 @@ stateDiagram-v2
   DEGRADED --> [*]
 ```
 
-每个中心同一时间默认只允许一个配置发布/回滚操作。可配置显式维护窗口和紧急发布权限。请求幂等键、中心锁、目标快照和制品摘要共同防止重放与并发覆盖。Spring Boot 通过 SSH 启动固定脚本并等待/查询任务结果；SSH 超时不代表脚本失败，须按任务 ID 查询节点侧状态。
+每个中心同一时间默认只允许一个配置发布/回滚操作。可配置显式维护窗口和紧急发布权限。请求幂等键、中心锁、目标快照和制品摘要共同防止重放与并发覆盖。Go 控制面通过 SSH 启动固定脚本并等待/查询任务结果；SSH 超时不代表脚本失败，须按任务 ID 查询节点侧状态。
 
 ### 7.2 节点发布步骤
 
@@ -404,9 +404,9 @@ stateDiagram-v2
 ### 9.1 技术与工程边界
 
 - 使用 `@vben/web-antd` 的 Vue 3 + TypeScript + Ant Design Vue 脚手架快速构建管理端，沿用其路由、权限指令、布局、请求封装、表格/表单组件和主题能力；具体脚手架版本在项目初始化时固定并提交 lockfile。
-- 前端只负责交互、展示和客户端输入校验；授权、中心范围过滤、状态转换、配置校验、发布/回滚策略都由 Spring Boot 服务端强制执行。
+- 前端只负责交互、展示和客户端输入校验；授权、中心范围过滤、状态转换、配置校验、发布/回滚策略都由 Go 控制面强制执行。
 - 前端不得直接读写 Git、SSH、节点文件系统或 Nginx Control API；所有数据经 `/api/**` 获取，敏感操作服务端二次校验权限和审批状态。
-- 生产环境构建为静态资源，由企业统一 Web 网关/CDN 或 Spring Boot 静态资源服务托管；API 走同源反向代理优先，避免宽泛 CORS。
+- 生产环境构建为静态资源，由企业统一 Web 网关/CDN 或 Nginx 托管；API 走同源反向代理优先，避免宽泛 CORS。
 - 使用 TypeScript 类型定义 API DTO；API 版本、分页、排序、筛选、错误码和时间格式统一。长任务使用轮询或 SSE/WebSocket 推送状态，不由页面保持阻塞请求。
 
 ### 9.2 信息架构与页面
@@ -452,13 +452,13 @@ stateDiagram-v2
 - 表格支持分页、筛选、排序和空/加载/错误状态；版本及审计列表可复制稳定 ID、导出有权限的数据。
 - 关键操作支持键盘操作、语义化控件和清晰的状态颜色/文字，不仅依赖颜色区分成功、失败和未知。
 
-## 10. Spring Boot 控制面
+## 10. Go 控制面
 
 ### 10.1 模块划分
 
 - `api`: REST DTO、参数校验、统一错误码。
 - `identity`: OIDC/企业身份集成、RBAC、中心范围授权和审批策略。
-- `repository`: JGit 访问、commit 验证、sparse checkout、仓库凭证。
+- `repository`: Git 访问、commit 验证、sparse checkout、仓库凭证。
 - `config`: 解析、静态规则、渲染和制品构建。
 - `validation`: 校验任务编排与结果归档。
 - `deployment`: 状态机、中心锁、批次策略、补偿流程。
@@ -664,7 +664,7 @@ common 配置影响多个中心时，变更页面必须展示影响中心集合�
 
 ### 阶段 B：单中心只读预演
 
-Spring Boot 通过 JGit 固定 commit 并 sparse checkout，生成制品和报告；只对测试节点执行暂存与 nginx -t，不 reload。验证 include 闭包与节点差异。
+Go 控制面固定 commit 并 sparse checkout，生成制品和报告；只对测试节点执行暂存与 nginx -t，不 reload。验证 include 闭包与节点差异。
 
 前端接入真实中心拓扑、配置浏览、Git 版本与 diff、校验任务结果；确认服务端鉴权和脱敏规则。
 
@@ -720,7 +720,7 @@ Spring Boot 通过 JGit 固定 commit 并 sparse checkout，生成制品和报�
 
 ## 19. 执行边界、策略启停与限速扩展
 
-- 不部署常驻节点代理服务。Spring Boot 控制面不直连节点的 Nginx Control API，也不调用任意远程 shell。
+- 不部署常驻节点代理服务。Go 控制面不直连节点的 Nginx Control API，也不调用任意远程 shell。
 - 控制面通过专用 SSH 身份触发节点 root 所有的固定发布脚本；SSH 账号只能调用白名单动作，输入为经过校验的任务 ID/制品 ID/操作类型。
 - 节点脚本本机完成制品验证、`nginx -t`、原子目录切换、健康检查和补偿，并通过节点本地 Unix socket 发 HTTP REST 请求调用 Control API reload。
 - Control API 不暴露网络监听；Web 页面只看到节点上报的 API 能力/健康状态，不显示 socket 路径、认证信息或可直接调用的 URL。
@@ -733,7 +733,7 @@ Spring Boot 通过 JGit 固定 commit 并 sparse checkout，生成制品和报�
 
 ---
 
-**当前实现结论：** MySQL 是配置和版本快照的事实来源，Spring Boot 是发布控制面，Web 是图形化管理入口，OpenResty Lua 是运行时规则执行面，Control API 是原生配置 reload 通道。Web 保存不会自动生效：运行时规则需要先发布快照，监听端口及原生 HTTP/Stream 配置需要生成配置并 reload；`/api/centers/{centerId}/deployments` 可一次完成这三个步骤。生产可靠性来自配置校验、版本快照、逐节点结果、审计记录和可回滚版本。Git/JGit、Redis Streams、rsync/SSH 仍属于历史或可选扩展，不是当前 Compose 闭环的必需组件。
+**当前实现结论：** MySQL 是配置和版本快照的事实来源，Go 是发布控制面，Web 是图形化管理入口，OpenResty Lua 是运行时规则执行面，Control API 是原生配置 reload 通道。Web 保存不会自动生效：运行时规则需要先发布快照，监听端口及原生 HTTP/Stream 配置需要生成配置并 reload；`/api/centers/{centerId}/deployments` 可一次完成这三个步骤。生产可靠性来自配置校验、版本快照、逐节点结果、审计记录和可回滚版本。Git、Redis Streams、rsync/SSH 仍属于历史或可选扩展，不是当前 Compose 闭环的必需组件。
 
 ## 20. IP 与 HTTP API 限速实现建议
 

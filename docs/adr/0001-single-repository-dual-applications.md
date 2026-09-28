@@ -6,7 +6,7 @@
 
 ## 决策
 
-项目采用单仓库结构，包含独立的 Spring Boot 后端、`@vben/web-antd` 前端、节点固定发布脚本、示例配置仓库和设计文档。
+项目采用单仓库结构，包含独立的 Go 控制面、`@vben/web-antd` 前端、节点固定发布脚本、示例配置仓库和设计文档。
 
 ## 背景
 
@@ -24,4 +24,4 @@
 
 ## 工程命名
 
-后端和前端分别位于 `backend/` 与 `frontend/`；后端应用名为 `openresty-plus-control-plane`，前端应用名为 `openresty-plus-console`，Java 基础包名为 `net.daoke.openrestyplus`。
+控制面和前端分别位于 `backend/` 与 `frontend/`；控制面模块名为 `net.daoke/openresty-plus-control-plane`，前端应用名为 `openresty-plus-console`。
