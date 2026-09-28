@@ -19,6 +19,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer database.Close()
+	if err := store.Migrate(database); err != nil {
+		log.Fatal(err)
+	}
 	server := &http.Server{Addr: configuration.HTTPAddress, Handler: httpapi.New(database)}
 	log.Printf("openresty-plus Go control plane listening on %s", configuration.HTTPAddress)
 	log.Fatal(server.ListenAndServe())

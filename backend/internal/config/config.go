@@ -30,5 +30,5 @@ func Load() (Config, error) {
 	if user == "" {
 		return Config{}, fmt.Errorf("OPENRESTY_DB_USERNAME is required")
 	}
-	return Config{HTTPAddress: address, MySQLDSN: fmt.Sprintf("%s:%s@tcp(%s)%s?parseTime=true&charset=utf8mb4", user, password, parsed.Host, parsed.EscapedPath())}, nil
+	return Config{HTTPAddress: address, MySQLDSN: fmt.Sprintf("%s:%s@tcp(%s)%s?parseTime=true&charset=utf8mb4&multiStatements=true", user, password, parsed.Host, parsed.EscapedPath())}, nil
 }

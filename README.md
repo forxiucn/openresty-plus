@@ -47,15 +47,16 @@
 
 ## Docker 联调
 
-根目录准备 `.env` 后执行。首次从原外部 MySQL 迁移数据时，填写指向外部源库的
-`MIGRATION_SOURCE_DB_*`，然后先执行：
+根目录准备 `.env` 后执行。Go 控制面启动时会自动应用仓库中的版本化 SQL 并初始化本地表结构；
+新机器直接启动即可。若要保留旧外部 MySQL 中的数据，先填写指向外部源库的
+`MIGRATION_SOURCE_DB_*`，启动控制面前执行一次：
 
 ```bash
 ./deploy/scripts/migrate-external-mysql-to-compose.sh
 ```
 
 脚本只读取源库，导入后会逐表校验行数；为防止误覆盖，目标库已有表时会拒绝执行。
-迁移完成后执行：
+完成数据迁移后再执行：
 
 ```bash
 docker compose up -d --build
