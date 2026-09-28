@@ -15,7 +15,7 @@ type Config struct {
 func Load() (Config, error) {
 	address := os.Getenv("OPENRESTY_HTTP_ADDR")
 	if address == "" {
-		address = ":8080"
+		address = ":8081"
 	}
 	jdbcURL := strings.TrimPrefix(os.Getenv("OPENRESTY_DB_URL"), "jdbc:")
 	if jdbcURL == "" {

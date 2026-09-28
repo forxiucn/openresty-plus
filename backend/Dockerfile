@@ -7,5 +7,5 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/control-plane ./cm
 
 FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/control-plane /control-plane
-EXPOSE 8080
+EXPOSE 8081
 ENTRYPOINT ["/control-plane"]

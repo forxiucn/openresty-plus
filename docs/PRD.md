@@ -137,7 +137,7 @@
 
 ## 当前交付状态（2026-09-27）
 
-- `docker-compose.yaml` 的 `control-plane` 使用 `backend`，Go 服务监听 8080，并已验证 `/healthz`、中心列表、HTTP 设置、Stream Server 查询与节点指标接口可访问。
+- `docker-compose.yaml` 的 `control-plane` 使用 `backend`，Go 服务监听 8081，并已验证 `/healthz`、中心列表、HTTP 设置、Stream Server 查询与节点指标接口可访问。
 - Go 已实现 Center、节点、节点指标、HTTP 设置、HTTP Upstream/Target、HTTP Server/Location、TLS、Stream、DNS Resolver 与审计查询接口。
 - 原 Java 控制面已删除；配置版本/草稿/回滚、原生配置渲染/物化、Control API reload、中心发布、字典、IP/API 策略资源和 Kafka/SSE 日志尚未迁移，当前不能提供完整发布闭环。
 - 因此，“Go 控制面已启动”仅证明已迁移资源管理 API 可用，不证明配置已经渲染、reload 或发布到节点。

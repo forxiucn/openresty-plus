@@ -4,7 +4,7 @@
 
 ## 当前运行状态
 
-`docker-compose.yaml` 启动 Go 控制面（`backend/`，监听 `:8080`）。原 Java 控制面已删除，仓库只保留 Go 后端。
+`docker-compose.yaml` 启动 Go 控制面（`backend/`，监听 `:8081`）。原 Java 控制面已删除，仓库只保留 Go 后端。
 
 已迁移到 Go 的 REST 接口包括：
 
@@ -59,13 +59,13 @@ Go 后端未迁移的功能当前不可用；不能再通过本仓库启动 Java
 
 ```bash
 docker compose up -d --build
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8081/healthz
 ```
 
 服务入口：
 
 - 管理 Web：<http://127.0.0.1:5173>
-- Go 控制面：<http://127.0.0.1:8080>，健康检查为 `/healthz`
+- Go 控制面：<http://127.0.0.1:8081>，健康检查为 `/healthz`
 - OpenResty 联调节点：<http://127.0.0.1:18080/health>
 - 节点 Control API HTTP 转发：<http://127.0.0.1:18081>
 

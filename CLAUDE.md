@@ -49,7 +49,7 @@ docker compose down                          # 停止并保留数据卷
 docker compose down -v                       # 清理数据卷（开发库和Redis）
 ```
 
-服务入口：前端 `:5173`，API `:8080`，OpenResty 节点1 `:18080`，节点2 `:28080`，Swagger `:8080/swagger-ui.html`
+服务入口：前端 `:5173`，API `:8081`，OpenResty 节点1 `:18080`，节点2 `:28080`，Swagger `:8081/swagger-ui.html`
 
 ### Host 网络模式（动态端口）
 

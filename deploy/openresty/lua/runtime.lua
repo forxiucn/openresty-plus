@@ -13,7 +13,7 @@ local function getenv(name, fallback)
 end
 
 local function configuration_url()
-  local base = getenv("RUNTIME_CONTROL_PLANE_URL", "http://control-plane:8080")
+  local base = getenv("RUNTIME_CONTROL_PLANE_URL", "http://control-plane:8081")
   local center_id = getenv("RUNTIME_CENTER_ID", "")
   if center_id == "" then return nil, "RUNTIME_CENTER_ID is not configured" end
   return base:gsub("/+$", "") .. "/api/centers/" .. center_id .. "/runtime-configurations/current"
