@@ -41,12 +41,21 @@ source_port=${source_host_port##*:}
 
 local_database=${MYSQL_DATABASE:-$(dotenv_value MYSQL_DATABASE)}
 local_database=${local_database:-openresty-plus}
+local_port=${MYSQL_PORT:-$(dotenv_value MYSQL_PORT)}
+local_port=${local_port:-3306}
 local_user=${MYSQL_USER:-$(dotenv_value MYSQL_USER)}
 local_user=${local_user:-openresty-plus}
 local_password=${MYSQL_PASSWORD:-$(dotenv_value MYSQL_PASSWORD)}
 local_password=${local_password:-openresty-plus-local}
 local_root_password=${MYSQL_ROOT_PASSWORD:-$(dotenv_value MYSQL_ROOT_PASSWORD)}
 local_root_password=${local_root_password:-openresty-plus-root}
+
+if [[ "$source_database" == "$local_database" && "$source_port" == "$local_port" && \
+  ( "$source_host" == "127.0.0.1" || "$source_host" == "localhost" || "$source_host" == "::1" ) ]]; then
+  echo "Migration source and local target both point to $source_host:$source_port/$source_database. Set MIGRATION_SOURCE_DB_URL to the external source database." >&2
+  exit 1
+fi
+
 dump_file=$(mktemp "${TMPDIR:-/tmp}/openresty-plus-mysql-XXXXXX.sql")
 trap 'rm -f "$dump_file"' EXIT
 

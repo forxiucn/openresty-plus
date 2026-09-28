@@ -47,8 +47,8 @@
 
 ## Docker 联调
 
-根目录准备 `.env` 后执行。首次从原外部 MySQL 迁移数据时，保留旧的
-`OPENRESTY_DB_*` 配置，或填写 `MIGRATION_SOURCE_DB_*`，然后先执行：
+根目录准备 `.env` 后执行。首次从原外部 MySQL 迁移数据时，填写指向外部源库的
+`MIGRATION_SOURCE_DB_*`，然后先执行：
 
 ```bash
 ./deploy/scripts/migrate-external-mysql-to-compose.sh
