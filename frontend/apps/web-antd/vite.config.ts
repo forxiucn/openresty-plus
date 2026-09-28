@@ -8,9 +8,8 @@ export default defineConfig(async () => {
         proxy: {
           '/api': {
             changeOrigin: true,
-            rewrite: (path) => path.replace(/^\/api/, ''),
-            // mock代理目标地址
-            target: 'http://localhost:5320/api',
+            // 本地开发与 Compose 保持一致，统一通过 /api 访问 Go 控制面。
+            target: 'http://127.0.0.1:8081',
             ws: true,
           },
         },
