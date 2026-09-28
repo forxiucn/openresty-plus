@@ -63,13 +63,34 @@ fi
 docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
   mysqldump -h"$source_host" -P"$source_port" -u"$source_user" --single-transaction --routines --events --triggers --no-tablespaces --set-gtid-purged=OFF "$source_database" >"$dump_file"
 
+source_tables=$(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
+  mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e 'SHOW TABLES')
+if [[ -z "$source_tables" ]]; then
+  echo "Source schema $source_database contains no tables; refusing to report an empty migration as successful." >&2
+  exit 1
+fi
+
+for table in $source_tables; do
+  if ! rg -q "CREATE TABLE \`$table\`" "$dump_file"; then
+    echo "Export is missing the CREATE TABLE statement for $table; refusing to import an incomplete dump." >&2
+    exit 1
+  fi
+done
+
 docker compose exec -T mysql mysql -u"$local_user" -p"$local_password" "$local_database" <"$dump_file"
 
-source_tables=$(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
-  mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e 'SHOW TABLES' | wc -l | tr -d ' ')
-target_tables=$(docker compose exec -T mysql mysql -N -s -u"$local_user" -p"$local_password" "$local_database" -e 'SHOW TABLES' | wc -l | tr -d ' ')
-if [[ "$source_tables" != "$target_tables" ]]; then
-  echo "Migration verification failed: source=$source_tables tables, local=$target_tables tables." >&2
+target_tables=$(docker compose exec -T mysql mysql -N -s -u"$local_user" -p"$local_password" "$local_database" -e 'SHOW TABLES')
+for table in $source_tables; do
+  if ! printf '%s\n' "$target_tables" | rg -qx "$table"; then
+    echo "Migration verification failed: table $table was not created in local schema $local_database." >&2
+    exit 1
+  fi
+done
+
+source_table_count=$(printf '%s\n' "$source_tables" | wc -l | tr -d ' ')
+target_table_count=$(printf '%s\n' "$target_tables" | wc -l | tr -d ' ')
+if [[ "$source_table_count" != "$target_table_count" ]]; then
+  echo "Migration verification failed: source=$source_table_count tables, local=$target_table_count tables." >&2
   exit 1
 fi
 
@@ -82,7 +103,6 @@ while IFS= read -r table; do
     echo "Migration verification failed for $table: source=$source_rows rows, local=$target_rows rows." >&2
     exit 1
   fi
-done < <(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
-  mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e 'SHOW TABLES')
+done <<<"$source_tables"
 
-echo "Migration completed and verified: $target_tables tables imported into local MySQL database $local_database."
+echo "Migration completed and verified: $source_table_count tables imported into local MySQL database $local_database."

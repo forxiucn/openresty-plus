@@ -5,7 +5,8 @@
 Compose 同时提供本地 MySQL、Redis 与 Kafka。若需要把旧外部 MySQL 的数据导入本地
 MySQL，设置 `MIGRATION_SOURCE_DB_*`（或保留旧的 `OPENRESTY_DB_*`）后运行
 `./deploy/scripts/migrate-external-mysql-to-compose.sh`。该脚本只读源库，导入完成后逐表
-校验行数，并在目标库已有表时拒绝覆盖。
+校验行数，并在目标库已有表时拒绝覆盖。脚本会检查源库非空、导出文件包含每张表的建表语句，
+并逐个确认目标表已创建，避免空导出或漏表时误报迁移成功。
 
 原生配置物化、节点 reload 与完整发布编排尚未迁移到 Go 后端，当前不可用。
 
