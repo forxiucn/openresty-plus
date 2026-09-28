@@ -3,6 +3,8 @@ WORKDIR /workspace
 
 # Vben's prepare hook skips local Git hook installation in CI builds.
 ENV CI=true
+# The production container must use the same-origin proxy in nginx.conf.
+ENV VITE_GLOB_API_URL=/api
 
 RUN corepack enable && corepack prepare pnpm@10.33.4 --activate
 COPY . .
