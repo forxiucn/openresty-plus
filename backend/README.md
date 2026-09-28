@@ -1,6 +1,6 @@
 # OpenResty Plus Go Control Plane
 
-当前 Compose 使用的控制面，监听 `:8080`，通过 `OPENRESTY_DB_URL`、`OPENRESTY_DB_USERNAME` 与 `OPENRESTY_DB_PASSWORD` 连接外部 MySQL。
+当前 Compose 使用的控制面，监听 `:8080`，通过 `OPENRESTY_DB_URL`、`OPENRESTY_DB_USERNAME` 与 `OPENRESTY_DB_PASSWORD` 连接本地 MySQL。
 
 ## 已实现接口
 
