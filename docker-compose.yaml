@@ -2,6 +2,7 @@ name: openresty-plus
 
 services:
   mysql:
+    container_name: openresty-plus-mysql
     image: mysql:8.4
     network_mode: host
     environment:
@@ -19,6 +20,7 @@ services:
       retries: 30
 
   redis:
+    container_name: openresty-plus-redis
     image: redis:7.4-alpine
     network_mode: host
     command: ["redis-server", "--appendonly", "yes"]
@@ -31,6 +33,7 @@ services:
       retries: 20
 
   kafka:
+    container_name: openresty-plus-kafka
     image: apache/kafka:3.9.1
     network_mode: host
     environment:
@@ -55,6 +58,7 @@ services:
       retries: 30
 
   control-plane:
+    container_name: openresty-plus-control-plane
     network_mode: host
     build:
       context: ./backend
@@ -81,6 +85,7 @@ services:
         condition: service_healthy
 
   frontend:
+    container_name: openresty-plus-frontend
     network_mode: host
     build:
       context: ./frontend
@@ -90,6 +95,7 @@ services:
       - control-plane
 
   openresty-east-1:
+    container_name: openresty-plus-openresty-east-1
     network_mode: host
     build:
       context: ./deploy/openresty
@@ -113,6 +119,7 @@ services:
       - control-plane
 
   filebeat-east-1:
+    container_name: openresty-plus-filebeat-east-1
     network_mode: host
     build:
       context: ./deploy/filebeat
@@ -127,6 +134,7 @@ services:
       - openresty-east-1
 
   deploy-tools:
+    container_name: openresty-plus-deploy-tools
     network_mode: host
     build:
       context: ./deploy
