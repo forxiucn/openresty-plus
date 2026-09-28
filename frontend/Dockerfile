@@ -3,11 +3,9 @@ WORKDIR /workspace
 
 # Vben's prepare hook skips local Git hook installation in CI builds.
 ENV CI=true
-# The production container must use the same-origin proxy in nginx.conf.
-ENV VITE_GLOB_API_URL=/api
-
 RUN corepack enable && corepack prepare pnpm@10.33.4 --activate
 COPY . .
+RUN cp apps/web-antd/.env.example apps/web-antd/.env.production.local
 RUN --mount=type=cache,id=openresty-plus-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 RUN pnpm run build --filter=@vben/web-antd
