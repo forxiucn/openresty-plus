@@ -14,6 +14,11 @@ func New(database *sql.DB) http.Handler {
 	mux := http.NewServeMux()
 	server := &Server{db: database}
 	mux.HandleFunc("GET /healthz", healthz)
+	mux.HandleFunc("POST /api/auth/login", server.login)
+	mux.HandleFunc("POST /api/auth/refresh", server.refreshToken)
+	mux.HandleFunc("POST /api/auth/logout", server.logout)
+	mux.HandleFunc("GET /api/auth/codes", server.accessCodes)
+	mux.HandleFunc("GET /api/user/info", server.userInfo)
 	mux.HandleFunc("GET /api/centers", server.listCenters)
 	mux.HandleFunc("GET /api/centers/paged", server.pageCenters)
 	mux.HandleFunc("POST /api/centers", server.createCenter)
