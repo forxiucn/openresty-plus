@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // New builds the control-plane HTTP surface. Store-backed API modules are
@@ -88,7 +90,33 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/centers/{centerID}/runtime-configurations", server.publishRuntimeConfiguration)
 	mux.HandleFunc("GET /api/centers/{centerID}/control-api-reloads", server.listReloadTasks)
 	mux.HandleFunc("GET /api/centers/{centerID}/control-api-reloads/paged", server.pageReloadTasks)
-	return mux
+	return localCORS(mux)
+}
+
+func localCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if isLocalOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept-Language")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions && strings.HasPrefix(r.URL.Path, "/api/") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLocalOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	return parsed.Scheme == "http" && (host == "127.0.0.1" || host == "localhost")
 }
 
 func healthz(writer http.ResponseWriter, _ *http.Request) {

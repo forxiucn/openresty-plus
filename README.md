@@ -69,6 +69,8 @@ curl http://127.0.0.1:8081/healthz
 - OpenResty 联调节点：<http://127.0.0.1:18080/health>
 - 节点 Control API HTTP 转发：<http://127.0.0.1:18081>
 
+登录页使用 Hash 路由：<http://127.0.0.1:5173/#/auth/login>。认证接口只能以 `POST /api/auth/login` 调用；浏览器通过同源 `/api` 代理访问，或从本地开发端口直接访问控制面时会获得 CORS 预检响应。
+
 Compose 会创建本地 MySQL 8.4、Redis 7.4 和 Kafka 3.9（KRaft 单节点），数据保存在
 `mysql-data`、`redis-data`、`kafka-data` named volume 中；运行服务只连接本地实例。
 渲染目录绑定到 `./runtime/native-config/`。服务使用 host 网络，端口必须与宿主机其他进程不冲突。
