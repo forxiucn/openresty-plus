@@ -47,7 +47,15 @@ Go 后端未迁移的功能当前不可用；不能再通过本仓库启动 Java
 
 ## Docker 联调
 
-根目录准备 `.env` 后执行：
+根目录准备 `.env` 后执行。首次从原外部 MySQL 迁移数据时，保留旧的
+`OPENRESTY_DB_*` 配置，或填写 `MIGRATION_SOURCE_DB_*`，然后先执行：
+
+```bash
+./deploy/scripts/migrate-external-mysql-to-compose.sh
+```
+
+脚本只读取源库，导入后会逐表校验行数；为防止误覆盖，目标库已有表时会拒绝执行。
+迁移完成后执行：
 
 ```bash
 docker compose up -d --build
@@ -61,9 +69,11 @@ curl http://127.0.0.1:8080/healthz
 - OpenResty 联调节点：<http://127.0.0.1:18080/health>
 - 节点 Control API HTTP 转发：<http://127.0.0.1:18081>
 
-Compose 不创建 MySQL、Redis 或 named volume；数据源来自 `.env` 中的外部 MySQL，渲染目录绑定到 `./runtime/native-config/`。服务使用 host 网络，端口必须与宿主机其他进程不冲突。
+Compose 会创建本地 MySQL 8.4、Redis 7.4 和 Kafka 3.9（KRaft 单节点），数据保存在
+`mysql-data`、`redis-data`、`kafka-data` named volume 中；运行服务只连接本地实例。
+渲染目录绑定到 `./runtime/native-config/`。服务使用 host 网络，端口必须与宿主机其他进程不冲突。
 
-`node-registration` 只登记脚本中显式配置的 `openresty-east-1`，不会恢复已删除的 `openresty-east-2`。`filebeat-east-1` 读取该节点的 `/var/log/nginx` 并发往 `OPENRESTY_KAFKA_*` 指定的 Kafka；Go 控制面尚未实现 Kafka 消费和 SSE 输出。
+`openresty-east-1` 在本地业务端口和 Control API 转发端口就绪后，主动调用 Go 控制面的 REST 接口登记自身；Compose 不再启动独立注册服务。节点标识和地址通过该节点的 `NODE_*` 环境变量显式配置。`filebeat-east-1` 读取该节点的 `/var/log/nginx` 并发往 `OPENRESTY_KAFKA_*` 指定的 Kafka；Go 控制面尚未实现 Kafka 消费和 SSE 输出。
 
 停止联调环境：
 

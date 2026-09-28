@@ -15,13 +15,28 @@ let timer: number | undefined;
 async function refresh() {
   try {
     centers.value = await fetch('/api/centers').then((response) => response.json());
-    const items = await Promise.all(centers.value.map(async (center) => [center.id, await fetch(`/api/centers/${center.id}/runtime-configurations/draft`).then((response) => response.ok ? response.json() : { changeCount: 0 })] as const));
-    pending.value = Object.fromEntries(items.map(([id, draft]) => [id, (draft as Draft).changeCount]));
+    const items = await Promise.all(centers.value.map(async (center) => {
+      const response = await fetch(`/api/centers/${center.id}/runtime-configurations/draft`);
+      if (!response.ok) return [center.id, pending.value[center.id] || 0] as const;
+      const draft = await response.json() as Draft;
+      const locallySaved = sessionStorage.getItem(`openresty-pending:${center.id}`) === '1';
+      return [center.id, locallySaved ? Math.max(1, draft.changeCount) : draft.changeCount] as const;
+    }));
+    pending.value = Object.fromEntries(items);
   } catch { /* keep the prior indicator while the API is unavailable */ }
 }
+function markPending(event: Event) {
+  const centerId = (event as CustomEvent<{ centerId?: string }>).detail?.centerId;
+  if (centerId) {
+    pending.value = { ...pending.value, [centerId]: Math.max(1, pending.value[centerId] || 0) };
+    // 保留一次保存结果，避免父页面刷新中心列表时把刚产生的提示清掉。
+    sessionStorage.setItem(`openresty-pending:${centerId}`, '1');
+  }
+}
 function open(centerId?: string) { router.push({ path: '/openresty/runtime-configurations', query: { ...(centerId ? { centerId } : {}), compare: '1' } }); }
-onMounted(() => { refresh(); timer = window.setInterval(refresh, 15_000); window.addEventListener('openresty-config-saved', refresh); window.addEventListener('openresty-config-published', refresh); });
-onBeforeUnmount(() => { if (timer) window.clearInterval(timer); window.removeEventListener('openresty-config-saved', refresh); window.removeEventListener('openresty-config-published', refresh); });
+function clearPending() { Object.keys(sessionStorage).filter((key) => key.startsWith('openresty-pending:')).forEach((key) => sessionStorage.removeItem(key)); refresh(); }
+onMounted(() => { refresh(); timer = window.setInterval(refresh, 15_000); window.addEventListener('openresty-config-saved', markPending); window.addEventListener('openresty-config-published', clearPending); });
+onBeforeUnmount(() => { if (timer) window.clearInterval(timer); window.removeEventListener('openresty-config-saved', markPending); window.removeEventListener('openresty-config-published', clearPending); });
 </script>
 
 <template>

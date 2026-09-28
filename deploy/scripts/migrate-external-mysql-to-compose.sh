@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Imports the external MySQL database into the local Compose MySQL instance.
+# It only reads the source and refuses to overwrite a non-empty local schema.
+workspace_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+env_file="${workspace_dir}/.env"
+
+if [[ ! -f "$env_file" ]]; then
+  echo "Missing $env_file; copy .env.example and fill the external source database values." >&2
+  exit 1
+fi
+
+dotenv_value() {
+  local key="$1" value
+  value=$(awk -v key="$key" 'index($0, key "=") == 1 { sub("^[^=]*=", ""); print; exit }' "$env_file")
+  if [[ -n "$value" ]]; then printf '%s' "$value"; else printenv "$key" 2>/dev/null || true; fi
+}
+
+# Do not source .env: JDBC query strings contain '&', which is shell syntax.
+source_url="${MIGRATION_SOURCE_DB_URL:-$(dotenv_value MIGRATION_SOURCE_DB_URL)}"
+source_url="${source_url:-$(dotenv_value OPENRESTY_DB_URL)}"
+source_user="${MIGRATION_SOURCE_DB_USERNAME:-$(dotenv_value MIGRATION_SOURCE_DB_USERNAME)}"
+source_user="${source_user:-$(dotenv_value OPENRESTY_DB_USERNAME)}"
+source_password="${MIGRATION_SOURCE_DB_PASSWORD:-$(dotenv_value MIGRATION_SOURCE_DB_PASSWORD)}"
+source_password="${source_password:-$(dotenv_value OPENRESTY_DB_PASSWORD)}"
+if [[ -z "$source_url" || -z "$source_user" ]]; then
+  echo "Set MIGRATION_SOURCE_DB_URL and MIGRATION_SOURCE_DB_USERNAME (or existing OPENRESTY_DB_* values)." >&2
+  exit 1
+fi
+
+source_url=${source_url#jdbc:}
+source_url=${source_url%%\?*}
+source_host_port=${source_url#mysql://}
+source_host_port=${source_host_port%%/*}
+source_database=${source_url##*/}
+source_database=${source_database%%\?*}
+source_host=${source_host_port%%:*}
+source_port=${source_host_port##*:}
+[[ "$source_host" == "$source_port" ]] && source_port=3306
+
+local_database=${MYSQL_DATABASE:-$(dotenv_value MYSQL_DATABASE)}
+local_database=${local_database:-openresty-plus}
+local_user=${MYSQL_USER:-$(dotenv_value MYSQL_USER)}
+local_user=${local_user:-openresty-plus}
+local_password=${MYSQL_PASSWORD:-$(dotenv_value MYSQL_PASSWORD)}
+local_password=${local_password:-openresty-plus-local}
+local_root_password=${MYSQL_ROOT_PASSWORD:-$(dotenv_value MYSQL_ROOT_PASSWORD)}
+local_root_password=${local_root_password:-openresty-plus-root}
+dump_file=$(mktemp "${TMPDIR:-/tmp}/openresty-plus-mysql-XXXXXX.sql")
+trap 'rm -f "$dump_file"' EXIT
+
+cd "$workspace_dir"
+docker compose up -d mysql
+until docker compose exec -T mysql mysqladmin ping -h 127.0.0.1 -uroot -p"$local_root_password" --silent >/dev/null 2>&1; do sleep 2; done
+
+existing_tables=$(docker compose exec -T mysql mysql -N -s -u"$local_user" -p"$local_password" "$local_database" -e 'SHOW TABLES' | wc -l | tr -d ' ')
+if [[ "$existing_tables" != "0" ]]; then
+  echo "Local schema $local_database already has $existing_tables table(s); refusing to overwrite it." >&2
+  exit 1
+fi
+
+docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
+  mysqldump -h"$source_host" -P"$source_port" -u"$source_user" --single-transaction --routines --events --triggers --no-tablespaces --set-gtid-purged=OFF "$source_database" >"$dump_file"
+
+docker compose exec -T mysql mysql -u"$local_user" -p"$local_password" "$local_database" <"$dump_file"
+
+source_tables=$(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
+  mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e 'SHOW TABLES' | wc -l | tr -d ' ')
+target_tables=$(docker compose exec -T mysql mysql -N -s -u"$local_user" -p"$local_password" "$local_database" -e 'SHOW TABLES' | wc -l | tr -d ' ')
+if [[ "$source_tables" != "$target_tables" ]]; then
+  echo "Migration verification failed: source=$source_tables tables, local=$target_tables tables." >&2
+  exit 1
+fi
+
+while IFS= read -r table; do
+  [[ -n "$table" ]] || continue
+  source_rows=$(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
+    mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e "SELECT COUNT(*) FROM \`$table\`")
+  target_rows=$(docker compose exec -T mysql mysql -N -s -u"$local_user" -p"$local_password" "$local_database" -e "SELECT COUNT(*) FROM \`$table\`")
+  if [[ "$source_rows" != "$target_rows" ]]; then
+    echo "Migration verification failed for $table: source=$source_rows rows, local=$target_rows rows." >&2
+    exit 1
+  fi
+done < <(docker run --rm --network host -e MYSQL_PWD="$source_password" mysql:8.4 \
+  mysql -N -s -h"$source_host" -P"$source_port" -u"$source_user" "$source_database" -e 'SHOW TABLES')
+
+echo "Migration completed and verified: $target_tables tables imported into local MySQL database $local_database."

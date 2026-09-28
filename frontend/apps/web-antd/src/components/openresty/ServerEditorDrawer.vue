@@ -89,7 +89,11 @@ async function saveServer() {
     const saved = await api<Server>(`/centers/${props.centerId}/http/servers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(base) });
     form.value = { ...form.value, ...saved };
     if (form.value.id) await api(`/centers/${props.centerId}/http/servers/${form.value.id}/directives`, { method: 'PUT', body: JSON.stringify({ rootPath: form.value.rootPath, hideVersion: form.value.hideVersion, responseHeaders: form.value.responseHeaders || [], errorPages: form.value.errorPages || {} }) });
-    window.dispatchEvent(new Event('openresty-config-saved')); message.success('Server 草稿已保存，发布后生效'); emit('saved');
+    if (form.value.id) {
+      const current = (await api<Server[]>(`/centers/${props.centerId}/http/servers`)).find((item) => item.id === form.value.id);
+      if (current) form.value = { ...form.value, ...current };
+    }
+    window.dispatchEvent(new CustomEvent('openresty-config-saved', { detail: { centerId: props.centerId } })); message.success('Server 草稿已保存，发布后生效'); emit('saved'); emit('update:open', false);
   } catch (e) { message.error(e instanceof Error ? e.message : '保存 Server 失败'); }
   finally { saving.value = false; }
 }

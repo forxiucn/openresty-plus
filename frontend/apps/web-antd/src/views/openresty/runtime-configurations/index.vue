@@ -30,8 +30,10 @@ type RuntimeVersion = {
   createdAt: string;
 };
 type RuntimeContent = {
+  httpConfiguration?: Record<string, unknown>;
   httpUpstreams?: unknown[];
   httpServers?: unknown[];
+  httpLocations?: unknown[];
   ipPolicies?: unknown[];
   apiPolicies?: unknown[];
   schemaVersion?: number;
@@ -63,13 +65,38 @@ const versionPager = useServerPagination(), auditPager = useServerPagination(), 
 
 const selectedCenter = computed(() => centers.value.find((item) => item.id === selectedCenterId.value));
 const centerOptions = computed(() => centers.value.map((item) => ({ value: item.id, label: `${item.name}（${item.code}）` })));
-const sectionLabels: Record<string, string> = { httpUpstreams: 'HTTP Upstream', httpServers: 'HTTP Server 与 Location', ipPolicies: 'IP 访问策略', apiPolicies: '接口访问策略', streamUpstreams: 'Stream Upstream', streamServers: 'Stream Server' };
+const sectionLabels: Record<string, string> = { httpConfiguration: 'HTTP 全局配置', httpUpstreams: 'HTTP Upstream', httpServers: 'HTTP Server', httpLocations: 'HTTP Location', ipPolicies: 'IP 访问策略', apiPolicies: '接口访问策略', streamUpstreams: 'Stream Upstream', streamServers: 'Stream Server' };
 const comparisonRows = computed(() => (comparison.value?.changedSections || []).map((section) => ({
   key: section,
   label: sectionLabels[section] || section,
   published: comparison.value?.published?.[section],
   draft: comparison.value?.draft?.[section],
 })));
+type DiffEntry = { path: string; before: string; after: string; kind: 'added' | 'removed' | 'changed' };
+function flatten(value: unknown, path = ''): Record<string, string> {
+  if (value === null || typeof value !== 'object') return { [path || '(值)']: formatJson(value) };
+  if (Array.isArray(value)) {
+    if (!value.length) return { [path || '(空数组)']: '[]' };
+    return value.reduce((all, item, index) => {
+      const object = item && typeof item === 'object' ? item as Record<string, unknown> : undefined;
+      const identity = object && (object.name || object.domain || object.service_name || object.path || object.id);
+      const marker = identity ? `${String(identity)}` : String(index);
+      return { ...all, ...flatten(item, `${path}[${marker}]`) };
+    }, {});
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (!entries.length) return { [path || '(空对象)']: '{}' };
+  return entries.reduce((all, [key, item]) => ({ ...all, ...flatten(item, path ? `${path}.${key}` : key) }), {});
+}
+function diffFor(item: { published: unknown; draft: unknown }): DiffEntry[] {
+  const before = flatten(item.published);
+  const after = flatten(item.draft);
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((path) => {
+    const oldValue = before[path]; const newValue = after[path];
+    if (oldValue === newValue) return [];
+    return [{ path, before: oldValue ?? '—', after: newValue ?? '—', kind: oldValue === undefined ? 'added' : newValue === undefined ? 'removed' : 'changed' }];
+  });
+}
 const summary = computed(() => ({
   upstreams: current.value?.content.httpUpstreams?.length ?? 0,
   servers: current.value?.content.httpServers?.length ?? 0,
@@ -301,21 +328,15 @@ onMounted(() => {
       <a-empty v-if="!comparisonRows.length" class="py-12" description="没有需要发布的配置变更" />
       <div v-else class="comparison-list">
         <section v-for="item in comparisonRows" :key="item.key" class="comparison-section">
-          <div class="comparison-heading">{{ item.label }}</div>
-          <a-row :gutter="16">
-            <a-col :md="12" :xs="24">
-              <div class="comparison-pane comparison-before">
-                <span class="comparison-label">{{ comparison?.publishedVersionNo ? `已发布 v${comparison.publishedVersionNo}` : '尚无历史版本' }}</span>
-                <pre>{{ comparison?.publishedVersionNo ? formatJson(item.published) : '—' }}</pre>
-              </div>
-            </a-col>
-            <a-col :md="12" :xs="24" class="max-md:mt-3">
-              <div class="comparison-pane comparison-after">
-                <span class="comparison-label">待发布草稿</span>
-                <pre>{{ formatJson(item.draft) }}</pre>
-              </div>
-            </a-col>
-          </a-row>
+          <div class="comparison-heading">{{ item.label }} <span class="diff-count">{{ diffFor(item).length }} 处变化</span></div>
+          <div class="git-diff">
+            <div class="git-diff-header"><span>已发布 {{ comparison?.publishedVersionNo ? `v${comparison.publishedVersionNo}` : '（无）' }}</span><span>待发布草稿</span></div>
+            <div v-for="diff in diffFor(item)" :key="`${item.key}-${diff.path}`" class="git-diff-row" :class="`diff-${diff.kind}`">
+              <div class="diff-cell diff-path"><span class="diff-marker">{{ diff.kind === 'added' ? '+' : diff.kind === 'removed' ? '−' : '±' }}</span>{{ diff.path }}</div>
+              <div class="diff-cell"><code>{{ diff.before }}</code></div>
+              <div class="diff-cell"><code>{{ diff.after }}</code></div>
+            </div>
+          </div>
         </section>
       </div>
     </a-modal>
@@ -386,6 +407,21 @@ onMounted(() => {
 .comparison-section { border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; padding: 16px; }
 .comparison-section + .comparison-section { margin-top: 12px; }
 .comparison-heading { margin-bottom: 12px; font-weight: 600; }
+.diff-count { margin-left: 8px; color: var(--ant-color-text-tertiary); font-size: 12px; font-weight: 400; }
+.git-diff { overflow: hidden; border: 1px solid var(--ant-color-border-secondary); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+.git-diff-header, .git-diff-row { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(0, 1fr) minmax(0, 1fr); }
+.git-diff-header { padding: 8px 12px; color: var(--ant-color-text-secondary); background: var(--ant-color-fill-quaternary); font-family: inherit; font-weight: 600; }
+.git-diff-header span:nth-child(2) { grid-column: 3; }
+.git-diff-row { border-top: 1px solid var(--ant-color-border-secondary); }
+.diff-cell { min-width: 0; padding: 7px 10px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.diff-path { border-right: 1px solid var(--ant-color-border-secondary); color: var(--ant-color-text-secondary); }
+.diff-cell + .diff-cell { border-left: 1px solid var(--ant-color-border-secondary); }
+.diff-cell code { color: inherit; font-family: inherit; white-space: pre-wrap; }
+.diff-marker { display: inline-block; width: 18px; color: var(--ant-color-text-tertiary); font-weight: 700; }
+.diff-added .diff-cell:nth-child(3) { background: rgb(82 196 26 / 12%); color: #b7eb8f; }
+.diff-removed .diff-cell:nth-child(2) { background: rgb(255 77 79 / 12%); color: #ffccc7; }
+.diff-changed .diff-cell:nth-child(2) { background: rgb(255 77 79 / 10%); color: #ffccc7; }
+.diff-changed .diff-cell:nth-child(3) { background: rgb(82 196 26 / 10%); color: #b7eb8f; }
 .comparison-pane { min-height: 140px; overflow: auto; border-radius: 6px; padding: 12px; }
 .comparison-before { border: 1px solid rgb(255 77 79 / 38%); background: rgb(255 77 79 / 5%); }
 .comparison-after { border: 1px solid rgb(82 196 26 / 38%); background: rgb(82 196 26 / 5%); }

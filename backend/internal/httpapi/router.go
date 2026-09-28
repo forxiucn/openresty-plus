@@ -75,6 +75,14 @@ func New(database *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/centers/{centerID}/dns-resolvers/{resolverID}", server.deleteDNSResolver)
 	mux.HandleFunc("GET /api/centers/{centerID}/audit-events", server.listAuditEvents)
 	mux.HandleFunc("GET /api/centers/{centerID}/audit-events/paged", server.pageAuditEvents)
+	mux.HandleFunc("GET /api/centers/{centerID}/runtime-configurations", server.listRuntimeConfigurations)
+	mux.HandleFunc("GET /api/centers/{centerID}/runtime-configurations/paged", server.pageRuntimeConfigurations)
+	mux.HandleFunc("GET /api/centers/{centerID}/runtime-configurations/current", server.currentRuntimeConfiguration)
+	mux.HandleFunc("GET /api/centers/{centerID}/runtime-configurations/draft", server.draftRuntimeConfiguration)
+	mux.HandleFunc("GET /api/centers/{centerID}/runtime-configurations/draft/compare", server.compareRuntimeConfiguration)
+	mux.HandleFunc("POST /api/centers/{centerID}/runtime-configurations", server.publishRuntimeConfiguration)
+	mux.HandleFunc("GET /api/centers/{centerID}/control-api-reloads", server.listReloadTasks)
+	mux.HandleFunc("GET /api/centers/{centerID}/control-api-reloads/paged", server.pageReloadTasks)
 	return mux
 }
 

@@ -1,6 +1,11 @@
 # 节点部署与发布脚本
 
-当前 Compose 提供一个显式登记的联调节点 `openresty-east-1`：业务/健康端点为 18080，Control API HTTP 转发端口为 18081。`openresty-east-2` 已从 Compose 中移除，不会被节点注册脚本重新创建。Filebeat 采集节点日志并发送至 Kafka，但 Go 控制面尚未消费该日志流。
+当前 Compose 提供一个联调节点 `openresty-east-1`：业务/健康端点为 18080，Control API HTTP 转发端口为 18081。节点在自身启动并确认本地 Control API 转发端口可用后，通过 Go 控制面的 REST 接口登记；不再依赖独立的注册服务。节点名称、地址和端口由 `NODE_NAME`、`NODE_HOST`、`NODE_SERVICE_PORT`、`NODE_CONTROL_API_URL` 显式配置。Filebeat 采集节点日志并发送至 Kafka，但 Go 控制面尚未消费该日志流。
+
+Compose 同时提供本地 MySQL、Redis 与 Kafka。若需要把旧外部 MySQL 的数据导入本地
+MySQL，设置 `MIGRATION_SOURCE_DB_*`（或保留旧的 `OPENRESTY_DB_*`）后运行
+`./deploy/scripts/migrate-external-mysql-to-compose.sh`。该脚本只读源库，导入完成后逐表
+校验行数，并在目标库已有表时拒绝覆盖。
 
 原生配置物化、节点 reload 与完整发布编排尚未迁移到 Go 后端，当前不可用。
 
